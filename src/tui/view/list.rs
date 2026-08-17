@@ -8,7 +8,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{difficulty_color, hints_line, pad1};
 use crate::cache::models::Problem;
-use crate::tui::{Model, ROWS_MARGIN};
+use crate::tui::{Model, PromptKind, ROWS_MARGIN};
 
 /// Fixed columns around the name: lock, status, `[id]`, difficulty, percent, and the spaces
 /// between them. The name gets whatever is left.
@@ -18,12 +18,30 @@ const FIXED_COLUMNS_WIDTH: u16 = 2 + 2 + 7 + 6 + 7 + 4;
 /// as a column of punctuation.
 const MIN_WIDTH: u16 = FIXED_COLUMNS_WIDTH + 12;
 
-const LIST_HINTS: [(&str, &str); 4] = [
+const LIST_HINTS: [(&str, &str); 7] = [
     ("j/k", "move"),
-    ("gg/G", "top/bottom"),
-    ("ctrl-d/u", "page"),
+    ("/", "search"),
+    ("s", "set"),
+    ("d", "difficulty"),
+    ("u", "unsolved"),
+    ("t", "tag"),
     ("q", "quit"),
 ];
+
+/// With any filter on, `esc` is the way back out, so it earns a slot.
+const LIST_HINTS_FILTERED: [(&str, &str); 7] = [
+    ("j/k", "move"),
+    ("/", "search"),
+    ("s", "set"),
+    ("d", "difficulty"),
+    ("u", "unsolved"),
+    ("esc", "clear filters"),
+    ("q", "quit"),
+];
+
+/// Shown on the footer while a prompt is open, in place of the hints.
+const SEARCH_HELP: &str = "space = and, !word = exclude, enter = keep, esc = drop";
+const TAG_HELP: &str = "a LeetCode tag slug, e.g. dynamic-programming — enter to look it up";
 
 pub(super) fn draw_list(m: &Model, f: &mut Frame) {
     let area = f.area();
@@ -31,8 +49,10 @@ pub(super) fn draw_list(m: &Model, f: &mut Frame) {
         return;
     }
 
+    // A prompt takes over the top line rather than inserting a row, so the table below it never
+    // shifts and the cursor cannot land off screen.
     f.render_widget(
-        Paragraph::new(pad1(header_line(m))),
+        Paragraph::new(pad1(top_line(m))),
         Rect::new(area.x, area.y, area.width, 1),
     );
 
@@ -53,6 +73,31 @@ pub(super) fn draw_list(m: &Model, f: &mut Frame) {
         Paragraph::new(pad1(status_or_hints(m))),
         Rect::new(area.x, footer_y + 1, area.width, 1),
     );
+}
+
+fn top_line(m: &Model) -> Line<'static> {
+    match &m.prompt {
+        Some(prompt) => prompt_line(prompt),
+        None => header_line(m),
+    }
+}
+
+/// The prompt: a prefix and the typed text with the cursor marked. What to type is explained on the
+/// footer, which is the one place that guidance lives.
+fn prompt_line(prompt: &crate::tui::Prompt) -> Line<'static> {
+    let (prefix, color) = match prompt.kind {
+        PromptKind::Search => ("/ ", Color::Magenta),
+        PromptKind::Tag => ("tag: ", Color::Cyan),
+    };
+
+    let (before, under_cursor, after) = prompt.input.render_parts();
+
+    Line::from(vec![
+        Span::styled(prefix, Style::new().fg(color).add_modifier(Modifier::BOLD)),
+        Span::raw(before.to_string()),
+        Span::styled(under_cursor, Style::new().add_modifier(Modifier::REVERSED)),
+        Span::raw(after.to_string()),
+    ])
 }
 
 /// `leetctl <version>` plus a chip per active filter, so the pool on screen is never a mystery.
@@ -87,11 +132,17 @@ fn filter_chips(m: &Model) -> Vec<(&'static str, String)> {
     if let Some(difficulty) = f.difficulty {
         chips.push(("difficulty", difficulty.as_str().to_string()));
     }
+    if let Some(tag) = &m.tag {
+        chips.push(("tag", tag.clone()));
+    }
+    if !m.search.is_empty() {
+        chips.push(("search", m.search.clone()));
+    }
+    if m.unsolved_only {
+        chips.push(("unsolved", "on".to_string()));
+    }
     if let Some(keyword) = &f.keyword {
         chips.push(("name", keyword.clone()));
-    }
-    if let Some(query) = &f.query {
-        chips.push(("query", query.clone()));
     }
 
     chips
@@ -257,7 +308,18 @@ fn stats_line(m: &Model, width: u16) -> Line<'static> {
 /// The last line carries whatever needs saying most: an error or in-flight note if there is one,
 /// the key hints otherwise.
 fn status_or_hints(m: &Model) -> Line<'static> {
+    if let Some(prompt) = &m.prompt {
+        let help = match prompt.kind {
+            PromptKind::Search => SEARCH_HELP,
+            PromptKind::Tag => TAG_HELP,
+        };
+        return Line::from(Span::styled(help, Style::new().fg(Color::DarkGray)));
+    }
+
     if m.status.is_empty() {
+        if m.has_filters() {
+            return hints_line(&LIST_HINTS_FILTERED);
+        }
         return hints_line(&LIST_HINTS);
     }
 

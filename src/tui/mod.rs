@@ -5,11 +5,13 @@
 //! `docs/tui.md` for the threading contract.
 
 mod app;
+mod input;
+mod search;
 mod view;
 
 pub use app::{Options, run};
 
-pub(crate) use app::{Model, ROWS_MARGIN};
+pub(crate) use app::{Model, Prompt, PromptKind, ROWS_MARGIN, SetChoice};
 
 #[cfg(test)]
 pub(crate) use app::test_model;

@@ -28,17 +28,23 @@ constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 | `Ctrl-d` / `Ctrl-u` | list, detail | page down / up |
 | `Enter` | list | open the description |
 | `Esc` | detail, overlays | back |
-| `/` | list | filter prompt (token substring, `!token` negates) |
-| `s` | list | set picker |
+| `/` | list | search prompt: space-separated tokens are ANDed, `!token` excludes |
+| `s` | list | set picker (`j`/`k`, `enter` applies, `x` clears the set, `esc` closes) |
 | `d` | list | cycle difficulty: all → easy → medium → hard |
 | `u` | list | toggle unsolved-only |
-| `t` | list | filter by tag |
+| `t` | list | filter by tag — a LeetCode tag slug, looked up over the network |
+| `esc` | list | drop every filter at once |
 | `D` | list | jump to today's daily challenge |
 | `e` | list, detail | open the solution file in `$EDITOR` |
 | `t` | detail | run the sample tests |
 | `S` | detail | submit (asks first) |
 | `?` | anywhere | help |
 | `q` | list | quit |
+
+Searching matches tokens as substrings of the id, name, slug, difficulty, and status together, so
+`easy !ac tree` reads as "easy tree problems I have not solved". It is substring-only on purpose:
+subsequence matching (typing `lcp` for *Longest Common Prefix*) needs ranking to stay useful, and
+without it three letters match hundreds of four thousand problems.
 
 `e` prepares the solution file exactly as `leetctl edit` does, including the language markers and
 the test-case file, then hands the terminal to your editor. Editor resolution is unchanged —
@@ -121,8 +127,8 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
 | 0 | This document | Merged |
 | 1 | Print-free, panic-free, side-effect-free cache layer | Merged |
 | 2 | Shared filter / stats engine; extract the code-file scaffold | Merged |
-| 3 | `leetctl tui`, event loop, problem table | Pending |
-| 4 | Filtering: text, set, difficulty, tag | Pending |
+| 3 | `leetctl tui`, event loop, problem table | Merged |
+| 4 | Filtering: text, set, difficulty, tag | Merged |
 | 5 | Detail view, help, daily challenge | Pending |
 | 6 | Edit, test, submit | Pending |
 

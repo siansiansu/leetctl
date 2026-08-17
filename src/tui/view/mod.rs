@@ -1,5 +1,6 @@
 //! Rendering. Difficulty colors follow the CLI's green / yellow / red.
 mod list;
+mod overlays;
 
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -16,6 +17,8 @@ pub(crate) fn draw(m: &Model, f: &mut Frame) {
     }
 
     list::draw_list(m, f);
+    // The picker floats over the table it is narrowing.
+    overlays::draw_set_picker(m, f);
 }
 
 fn draw_loading(m: &Model, f: &mut Frame) {
@@ -193,6 +196,92 @@ mod tests {
         let screen = render(&m, 80, 20);
 
         assert!(screen.contains("No problems match"), "{screen}");
+    }
+
+    #[test]
+    fn an_open_search_prompt_takes_over_the_top_line() {
+        let mut m = listed_model();
+        m.open_prompt(crate::tui::PromptKind::Search);
+        m.search = "two".into();
+        m.apply_filters();
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("/ "), "prompt prefix missing:\n{screen}");
+        assert!(
+            !screen.contains("leetctl 0"),
+            "header should step aside:\n{screen}"
+        );
+        assert!(
+            screen.contains("!word = exclude"),
+            "help missing:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn the_tag_prompt_says_what_it_wants() {
+        let mut m = listed_model();
+        m.open_prompt(crate::tui::PromptKind::Tag);
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("tag:"), "{screen}");
+        assert!(
+            screen.contains("dynamic-programming"),
+            "example missing:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn interactive_filters_show_up_as_chips() {
+        let mut m = listed_model();
+        m.search = "sum".into();
+        m.unsolved_only = true;
+        m.tag = Some("array".into());
+        m.apply_filters();
+
+        let screen = render(&m, 100, 20);
+
+        assert!(screen.contains("search:sum"), "{screen}");
+        assert!(screen.contains("unsolved:on"), "{screen}");
+        assert!(screen.contains("tag:array"), "{screen}");
+    }
+
+    #[test]
+    fn the_footer_offers_escape_once_a_filter_is_on() {
+        let mut m = listed_model();
+        assert!(!render(&m, 100, 20).contains("esc:clear filters"));
+
+        m.unsolved_only = true;
+        m.apply_filters();
+        assert!(render(&m, 100, 20).contains("esc:clear filters"));
+    }
+
+    #[test]
+    fn the_set_picker_lists_every_bundled_set_with_its_size() {
+        let mut m = listed_model();
+        m.open_picker();
+
+        let screen = render(&m, 100, 30);
+
+        assert!(screen.contains("problem set"), "title missing:\n{screen}");
+        assert!(screen.contains("Blind 75"), "{screen}");
+        assert!(screen.contains("75 problems"), "count missing:\n{screen}");
+        assert!(screen.contains('❯'), "selection marker missing:\n{screen}");
+        assert!(screen.contains("enter:apply"), "{screen}");
+    }
+
+    #[test]
+    fn the_picker_keeps_the_highlighted_set_on_screen_when_scrolled() {
+        let mut m = listed_model();
+        m.open_picker();
+        m.picker = Some(m.sets.len() - 1);
+        let last = m.sets.last().unwrap().name.clone();
+
+        // A terminal too short for eleven sets still shows the one under the cursor.
+        let screen = render(&m, 100, 12);
+
+        assert!(screen.contains(&last), "{screen}");
     }
 
     #[test]
