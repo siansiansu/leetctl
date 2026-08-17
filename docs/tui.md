@@ -119,8 +119,8 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
 | Phase | Scope | Status |
 | ---: | --- | --- |
 | 0 | This document | Merged |
-| 1 | Print-free, panic-free, side-effect-free cache layer | Pending |
-| 2 | Shared filter / stats engine; extract the code-file scaffold | Pending |
+| 1 | Print-free, panic-free, side-effect-free cache layer | Merged |
+| 2 | Shared filter / stats engine; extract the code-file scaffold | Merged |
 | 3 | `leetctl tui`, event loop, problem table | Pending |
 | 4 | Filtering: text, set, difficulty, tag | Pending |
 | 5 | Detail view, help, daily challenge | Pending |

@@ -26,6 +26,8 @@ change that only compiles without `pym` will fail there.
 | `src/cache/` | SQLite (diesel) cache wrapping the API client: `mod.rs` operations, `models.rs` types, `parser.rs` JSON → model |
 | `src/plugins/` | `leetcode.rs` HTTP/GraphQL client, `chrome.rs` cookie extraction |
 | `src/sets/` | compile-time curated sets; `REGISTRY` maps slug → `include_str!`'d TOML |
+| `src/filters.rs` | `ProblemFilters` / `apply` / `progress` — the one filter engine |
+| `src/scaffold.rs` | solution and test-case file creation; editor invocation |
 | `src/helper.rs` | filter primitives, `Difficulty`, HTML → text, path builders |
 | `data/sets/` | generated set files — never hand-edit |
 
