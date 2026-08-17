@@ -56,6 +56,11 @@ pub enum Error {
     Config(#[from] toml::de::Error),
     #[error("Maybe you not login on the Chrome, you can login and retry")]
     ChromeNotLogin,
+    #[error("Could not open the problem cache at {path}: {source}")]
+    CacheOpen {
+        path: String,
+        source: diesel::ConnectionError,
+    },
     #[error("Unknown problem set `{0}`. Run `leetctl sets` to see what is available.")]
     UnknownSet(String),
     // Deliberately not a `#[from] toml::de::Error`: that maps to `Config`, whose message blames

@@ -100,6 +100,9 @@ impl PickArgs {
         let mut attempt = 0;
         loop {
             attempt += 1;
+            // Announced per attempt, matching what the retry loop showed when the cache layer
+            // printed this itself.
+            println!("{}", cache.get_problem(fid)?.banner());
             match cache.get_question(fid).await {
                 Ok(question) => {
                     println!("{}", question.desc());

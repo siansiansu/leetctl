@@ -37,6 +37,26 @@ impl Problem {
         crate::helper::Difficulty::from_level(self.level).map_or("Unknown", |d| d.as_str())
     }
 
+    /// The "problem is being fetched" line the commands print before a description fetch.
+    ///
+    /// Lives here rather than in `Cache::get_question` because the cache layer must not print —
+    /// a `println!` there would land on top of the TUI's alternate screen.
+    pub fn banner(&self) -> String {
+        let ids = match self.level {
+            1 => self.fid.to_string().green(),
+            2 => self.fid.to_string().yellow(),
+            3 => self.fid.to_string().red(),
+            _ => self.fid.to_string().dimmed(),
+        };
+
+        format!(
+            "\n[{}] {} {}\n\n",
+            ids,
+            self.name.bold().underline(),
+            "is on the run...".dimmed()
+        )
+    }
+
     pub fn desc_comment(&self, conf: &Config) -> String {
         let mut res = String::new();
         let comment_leading = &conf.code.comment_leading;
@@ -288,6 +308,27 @@ pub struct VerifyResult {
     submit: Submit,
 }
 
+impl VerifyResult {
+    /// A submission LeetCode accepted: status 10 plus the per-case comparison string it only
+    /// sends for a finished submission.
+    pub fn is_accepted(&self) -> bool {
+        self.status.status_code == 10
+            && matches!(self.result_type, Run::Submit)
+            && !self.submit.compare_result.is_empty()
+    }
+
+    /// Internal problem id of an accepted submission, for marking the cached row solved.
+    /// `None` for anything that was not accepted; an error only if LeetCode sent a
+    /// `question_id` that is not an integer.
+    pub fn accepted_problem_id(&self) -> std::result::Result<Option<i32>, std::num::ParseIntError> {
+        if !self.is_accepted() {
+            return Ok(None);
+        }
+
+        self.submit.question_id.parse().map(Some)
+    }
+}
+
 impl std::fmt::Display for VerifyResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ca = match &self.code_answer.len() {
@@ -325,18 +366,6 @@ impl std::fmt::Display for VerifyResult {
                     // only Submit execute this branch
                     // Submit Successfully
                     // TODO: result should be all 1;
-                    // Lines below are sucks...
-                    let cache = super::Cache::new().expect("cache gen failed");
-                    cache
-                        .update_after_ac(
-                            self.submit
-                                .question_id
-                                .parse()
-                                .expect("submit successfully, parse question_id to i32 failed"),
-                        )
-                        .expect("update ac to cache failed");
-
-                    // prints
                     let rp = if let Some(n) = &self.analyse.runtime_percentile {
                         if n.is_f64() {
                             n.as_f64().unwrap_or(0.0) as i64
@@ -605,5 +634,101 @@ impl Formatter for str {
         r.push_str(&" ".repeat(spaces));
         r.push_str(self);
         r
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn problem(fid: i32, level: i32, name: &str) -> Problem {
+        Problem {
+            category: "algorithms".to_string(),
+            fid,
+            id: fid,
+            level,
+            locked: false,
+            name: name.to_string(),
+            percent: 50.0,
+            slug: name.to_lowercase().replace(' ', "-"),
+            starred: false,
+            status: String::new(),
+            desc: String::new(),
+        }
+    }
+
+    /// The one shape a submission response needs for the accepted path: status 10, a compare
+    /// string, and the internal problem id. `result_type` is `#[serde(skip)]` and defaults to
+    /// `Run::Submit`, which is what a real submit carries.
+    fn accepted_submission() -> VerifyResult {
+        serde_json::from_str(
+            r#"{
+                "state": "SUCCESS",
+                "status_code": 10,
+                "status_msg": "Accepted",
+                "status_runtime": "4 ms",
+                "status_memory": "2.1 MB",
+                "runtime_percentile": 91.5,
+                "memory_percentile": 47.0,
+                "compare_result": "111",
+                "question_id": "704",
+                "pretty_lang": "Rust"
+            }"#,
+        )
+        .expect("accepted submission fixture should deserialize")
+    }
+
+    #[test]
+    fn banner_names_the_problem_and_reads_as_in_flight() {
+        let rendered = problem(704, 1, "Binary Search").banner();
+
+        assert!(
+            rendered.contains("704"),
+            "banner should carry the frontend id"
+        );
+        assert!(rendered.contains("Binary Search"));
+        assert!(rendered.contains("is on the run..."));
+    }
+
+    #[test]
+    fn is_accepted_only_for_a_finished_submission() {
+        assert!(accepted_submission().is_accepted());
+
+        // A test run reaches status 10 too; only a submission carries `compare_result`.
+        let mut passing_test = accepted_submission();
+        passing_test.result_type = Run::Test;
+        assert!(!passing_test.is_accepted());
+
+        let mut wrong_answer = accepted_submission();
+        wrong_answer.status.status_code = 11;
+        assert!(!wrong_answer.is_accepted());
+
+        assert!(!VerifyResult::default().is_accepted());
+    }
+
+    #[test]
+    fn accepted_problem_id_is_the_internal_id() {
+        assert_eq!(accepted_submission().accepted_problem_id(), Ok(Some(704)));
+        assert_eq!(VerifyResult::default().accepted_problem_id(), Ok(None));
+
+        let mut unparseable = accepted_submission();
+        unparseable.submit.question_id = "seven-oh-four".to_string();
+        assert!(unparseable.accepted_problem_id().is_err());
+    }
+
+    /// Regression guard: formatting an accepted submission used to open the sqlite cache and write
+    /// `update_after_ac` from inside `fmt`, panicking through `expect` when that failed. Rendering
+    /// must be pure — the TUI formats results while drawing.
+    #[test]
+    fn display_of_an_accepted_submission_only_formats() {
+        let rendered = accepted_submission().to_string();
+
+        assert!(rendered.contains("Success"));
+        assert!(rendered.contains("4 ms"), "runtime should be reported");
+        assert!(
+            rendered.contains("91%"),
+            "runtime percentile is truncated to a whole percent"
+        );
+        assert!(rendered.contains("2.1 MB"));
     }
 }

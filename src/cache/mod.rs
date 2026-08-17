@@ -9,7 +9,6 @@ use self::sql::*;
 use crate::helper::test_cases_path;
 use crate::{config::Config, err::Error, plugins::LeetCode};
 use anyhow::anyhow;
-use colored::Colorize;
 use diesel::prelude::*;
 use reqwest::Response;
 use serde::de::DeserializeOwned;
@@ -17,8 +16,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 /// sqlite connection
-pub fn conn(p: String) -> SqliteConnection {
-    SqliteConnection::establish(&p).unwrap_or_else(|_| panic!("Error connecting to {:?}", p))
+pub fn conn(p: String) -> Result<SqliteConnection, Error> {
+    SqliteConnection::establish(&p).map_err(|source| Error::CacheOpen { path: p, source })
 }
 
 /// Condition submit or test
@@ -36,7 +35,7 @@ pub struct Cache(pub LeetCode);
 impl Cache {
     /// Ref to sqlite connection
     fn conn(&self) -> Result<SqliteConnection, Error> {
-        Ok(conn(self.0.conf.storage.cache()?))
+        conn(self.0.conf.storage.cache()?)
     }
 
     /// Clean cache
@@ -51,7 +50,7 @@ impl Cache {
     }
 
     pub fn update_after_ac(self, rid: i32) -> Result<(), Error> {
-        let mut c = conn(self.0.conf.storage.cache()?);
+        let mut c = conn(self.0.conf.storage.cache()?)?;
         let target = problems.filter(id.eq(rid));
         diesel::update(target)
             .set(status.eq("ac"))
@@ -148,20 +147,6 @@ impl Cache {
     #[allow(clippy::useless_let_if_seq)]
     pub async fn get_question(&self, rfid: i32) -> Result<Question, Error> {
         let target: Problem = problems.filter(fid.eq(rfid)).first(&mut self.conn()?)?;
-
-        let ids = match target.level {
-            1 => target.fid.to_string().green(),
-            2 => target.fid.to_string().yellow(),
-            3 => target.fid.to_string().red(),
-            _ => target.fid.to_string().dimmed(),
-        };
-
-        println!(
-            "\n[{}] {} {}\n\n",
-            ids,
-            target.name.bold().underline(),
-            "is on the run...".dimmed()
-        );
 
         if target.category != "algorithms" {
             return Err(anyhow!("No support for database and shell questions yet").into());
@@ -385,13 +370,21 @@ impl Cache {
         res.name = json.get("name").ok_or(Error::NoneError)?.to_string();
         res.data_input = json.get("data_input").ok_or(Error::NoneError)?.to_string();
         res.result_type = run;
+
+        // Marking the row solved belongs to the submission, not to rendering its result. It used
+        // to happen inside `VerifyResult`'s `Display` impl, which meant formatting a result wrote
+        // to sqlite — the TUI formats results while drawing.
+        if let Some(pid) = res.accepted_problem_id()? {
+            self.clone().update_after_ac(pid)?;
+        }
+
         Ok(res)
     }
 
     /// New cache
     pub fn new() -> Result<Self, Error> {
         let conf = Config::locate()?;
-        let mut c = conn(conf.storage.cache()?);
+        let mut c = conn(conf.storage.cache()?)?;
         diesel::sql_query(CREATE_PROBLEMS_IF_NOT_EXISTS).execute(&mut c)?;
         diesel::sql_query(CREATE_TAGS_IF_NOT_EXISTS).execute(&mut c)?;
 

@@ -57,6 +57,7 @@ impl EditArgs {
         if !Path::new(&path).exists() {
             let mut qr = serde_json::from_str(&problem.desc);
             if qr.is_err() {
+                println!("{}", problem.banner());
                 qr = Ok(cache.get_question(id).await?);
             }
 
