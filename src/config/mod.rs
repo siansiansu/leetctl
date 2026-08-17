@@ -1,0 +1,91 @@
+//! Soft-link with `config.toml`
+//!
+//! leetctl will generate a `leetcode.toml` by default,
+//! if you wanna change to it, you can:
+//!
+//! + Edit leetcode.toml at `~/.leetcode/leetcode.toml` directly
+//! + Use `leetctl config` to update it
+use crate::{
+    Error, Result,
+    config::{code::Code, cookies::Cookies, storage::Storage, sys::Sys},
+};
+use serde::{Deserialize, Serialize};
+use std::{fs, path::Path, str::FromStr};
+
+mod code;
+mod cookies;
+mod storage;
+mod sys;
+
+pub use cookies::LeetcodeSite;
+
+/// Sync with `~/.leetcode/leetcode.toml`
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Config {
+    #[serde(default, skip_serializing)]
+    pub sys: Sys,
+    pub code: Code,
+    pub cookies: Cookies,
+    pub storage: Storage,
+}
+
+impl Config {
+    fn write_default(p: impl AsRef<Path>) -> Result<()> {
+        fs::write(p.as_ref(), toml::ser::to_string_pretty(&Self::default())?)?;
+
+        Ok(())
+    }
+
+    /// Locate lc's config file
+    pub fn locate() -> Result<Config> {
+        let conf = Self::root()?.join("leetcode.toml");
+
+        if !conf.is_file() {
+            Self::write_default(&conf)?;
+        }
+
+        fs::read_to_string(&conf)?
+            .parse::<Config>()
+            .inspect_err(|_| {
+                let _ = Self::write_default(conf.with_file_name("leetcode.tmp.toml"));
+            })
+    }
+
+    /// Get root path of leetctl
+    pub fn root() -> Result<std::path::PathBuf> {
+        let dir = dirs::home_dir().ok_or(Error::NoneError)?.join(".leetcode");
+        if !dir.is_dir() {
+            info!("Generate root dir at {:?}.", dir);
+            fs::DirBuilder::new().recursive(true).create(&dir)?;
+        }
+
+        Ok(dir)
+    }
+
+    /// Sync new config to config.toml
+    pub fn sync(&self) -> Result<()> {
+        let home = dirs::home_dir().ok_or(Error::NoneError)?;
+        let conf = home.join(".leetcode/leetcode.toml");
+        fs::write(conf, toml::ser::to_string_pretty(&self)?)?;
+
+        Ok(())
+    }
+}
+
+impl FromStr for Config {
+    type Err = Error;
+
+    /// Parses `leetcode.toml`, applying the environment overrides on top of it.
+    fn from_str(s: &str) -> Result<Self> {
+        let mut config: Config = toml::from_str(s)?;
+
+        config.code = config.code.with_env_override();
+        config.cookies = config.cookies.with_env_override();
+
+        if let cookies::LeetcodeSite::LeetcodeCn = config.cookies.site {
+            config.sys.urls = sys::Urls::new_with_leetcode_cn();
+        }
+
+        Ok(config)
+    }
+}
