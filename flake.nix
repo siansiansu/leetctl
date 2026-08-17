@@ -63,7 +63,7 @@
 
           meta = with pkgs.lib; {
             description = "Leet your code in command-line.";
-            homepage = "https://github.com/siansiansu/leetcode-rs";
+            homepage = "https://github.com/siansiansu/leetcli";
             licenses = licenses.mit;
             maintainers = [ ];
             mainProgram = "leetctl";

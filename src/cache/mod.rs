@@ -359,7 +359,7 @@ impl Cache {
             anyhow!(
                 "Failed to decode run code result, could be caused by cookie expiration, \
                  csrf token mismatch, or network issue:\n {e}, raw response:\n {text}\n, \
-                 please report this issue at https://github.com/siansiansu/leetcode-rs/issues/new"
+                 please report this issue at https://github.com/siansiansu/leetcli/issues/new"
             )
         })?;
 

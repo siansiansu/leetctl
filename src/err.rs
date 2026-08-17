@@ -28,21 +28,21 @@ pub enum Error {
          {} \
          Either you can handwrite your `LEETCODE_SESSION` and `csrf` into `leetcode.toml`, \
          more info please checkout this: \
-         https://github.com/siansiansu/leetcode-rs/blob/main/docs/cookies.md",
+         https://github.com/siansiansu/leetcli/blob/main/docs/cookies.md",
         "please make sure you have logined in leetcode.com with chrome. ".yellow().bold()
     )]
     CookieError,
     #[error(
         "Your leetcode account lacks a premium subscription, which the given problem requires.\n \
          If this looks like a mistake, please open a new issue at: {}",
-        "https://github.com/siansiansu/leetcode-rs/".underline()
+        "https://github.com/siansiansu/leetcli/".underline()
     )]
     PremiumError,
     #[error(transparent)]
     Utf8(#[from] std::string::FromUtf8Error),
     #[error(
         "json from response parse failed, please open a new issue at: {}.",
-        "https://github.com/siansiansu/leetcode-rs/".underline()
+        "https://github.com/siansiansu/leetcli/".underline()
     )]
     NoneError,
     #[error(
@@ -63,7 +63,7 @@ pub enum Error {
     #[error(
         "Bundled problem set `{slug}` failed to parse. This is a packaging bug in leetctl, \
          not a problem with your config — please report it at {}\n{source}",
-        "https://github.com/siansiansu/leetcode-rs/issues/new".underline()
+        "https://github.com/siansiansu/leetcli/issues/new".underline()
     )]
     SetData {
         slug: String,
