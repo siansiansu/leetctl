@@ -1,6 +1,6 @@
 # leetctl
 
-[![build](https://github.com/siansiansu/leetcli/workflows/leetctl/badge.svg)](https://github.com/siansiansu/leetcli/actions)
+[![build](https://github.com/siansiansu/leetctl/workflows/leetctl/badge.svg)](https://github.com/siansiansu/leetctl/actions)
 [![crate](https://img.shields.io/crates/v/leetctl.svg)](https://crates.io/crates/leetctl)
 [![doc](https://img.shields.io/badge/current-docs-brightgreen.svg)](https://docs.rs/leetctl/)
 [![LICENSE](https://img.shields.io/crates/l/leetctl.svg)](https://choosealicense.com/licenses/mit/)

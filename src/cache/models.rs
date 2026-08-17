@@ -461,7 +461,7 @@ impl std::fmt::Display for VerifyResult {
                 "{}{}{}{}{}{}{}{}",
                 "\nUnknown Error...\n".red().bold(),
                 "\nBingo! Welcome to fix this! Pull your request at ".yellow(),
-                "https://github.com/siansiansu/leetcli/pulls"
+                "https://github.com/siansiansu/leetctl/pulls"
                     .dimmed()
                     .underline(),
                 ", and this file is located at ".yellow(),
