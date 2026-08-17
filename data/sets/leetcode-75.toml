@@ -3,9 +3,9 @@ slug = "leetcode-75"
 name = "LeetCode 75"
 description = "LeetCode's official 75-problem starter study plan."
 source_url = "https://leetcode.com/studyplan/"
-source_license = "LeetCode study plan, fetched from leetcode.com"
+source_license = "Proprietary (LeetCode); problem identifiers only"
+source_as_of = "2026-08-17"
 generated_at = "2026-08-17"
-stale = false
 
 problems = [
   { fid = 1768, slug = "merge-strings-alternately" },

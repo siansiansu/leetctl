@@ -17,21 +17,24 @@ leetctl pick --set blind75 --difficulty medium  # random pick from a set
 | `blind75` | Blind 75 | 75 | [neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode) | MIT |
 | `neetcode150` | NeetCode 150 | 150 | same | MIT |
 | `neetcode-all` | NeetCode All | 450 | same | MIT |
-| `top-interview-150` | Top Interview 150 | 150 | LeetCode study plan | LeetCode |
-| `top-100-liked` | Top 100 Liked | 100 | LeetCode study plan | LeetCode |
-| `leetcode-75` | LeetCode 75 | 75 | LeetCode study plan | LeetCode |
+| `top-interview-150` | Top Interview 150 | 150 | LeetCode study plan | LeetCode, identifiers only |
+| `top-100-liked` | Top 100 Liked | 100 | LeetCode study plan | LeetCode, identifiers only |
+| `leetcode-75` | LeetCode 75 | 75 | LeetCode study plan | LeetCode, identifiers only |
 | `google` | Google | 488 | [hxu296/leetcode-company-wise-problems-2022](https://github.com/hxu296/leetcode-company-wise-problems-2022) | MIT |
 | `facebook` | Meta / Facebook | 371 | same | MIT |
 | `amazon` | Amazon | 592 | same | MIT |
 | `microsoft` | Microsoft | 363 | same | MIT |
 
-### The company lists are 2022 data — read this before trusting them
+### The company lists are a 2022 snapshot — read this before trusting them
 
 LeetCode's live company tags are a **Premium** feature and are not available to this tool. The four
-company sets come instead from a community-collected snapshot of interview frequency data from
-**2022**. Treat them as "problems that were being asked around 2022", not as a current signal.
+company sets come instead from a community-collected snapshot of which problems carried each
+company's tag in **2022**. Treat them as "problems that were being asked around 2022", not as a
+current signal.
 
-`leetctl sets` flags them as stale, and each file records its own `stale = true`.
+They are membership lists, not ranked frequency lists: the upstream data carries an occurrence
+count, but this tool samples uniformly and sorts by problem id, so that ranking is not stored. Each
+file records `source_as_of = "2022"`, and `leetctl sets --sources` prints it.
 
 ### There is no NeetCode 250
 
@@ -44,9 +47,19 @@ exposes that list. `neetcode-all` (all 450) ships in its place.
 
 ### Premium problems
 
-Eight problems in the NeetCode lists are LeetCode Premium (e.g. *Encode and Decode Strings*,
-*Walls and Gates*). They stay in the sets — they are genuinely part of those lists — but show as
-locked and cannot be fetched without a subscription. Filter them out with the `L` query flag:
+Some sets contain LeetCode Premium problems (e.g. *Encode and Decode Strings*, *Walls and Gates*).
+They stay in the sets — they are genuinely part of those lists — but show as locked and cannot be
+fetched without a subscription. Counts, measured against a current problem cache:
+
+| Set | Locked |
+| --- | ---: |
+| `blind75` | 6 |
+| `neetcode150` | 7 |
+| `neetcode-all` | 9 |
+| `google` | 80 |
+| `top-interview-150`, `top-100-liked`, `leetcode-75` | 0 |
+
+Filter them out with the `L` query flag:
 
 ```sh
 leetctl pick --set neetcode150 --query L
@@ -65,8 +78,8 @@ name = "Blind 75"
 description = "The original Blind 75 list, as tracked by NeetCode."
 source_url = "https://github.com/neetcode-gh/leetcode"
 source_license = "MIT"
-generated_at = "2026-08-17"
-stale = false
+source_as_of = "2026-08-17"   # vintage of the data
+generated_at = "2026-08-17"   # when it was last fetched
 
 problems = [
   { fid = 217, slug = "contains-duplicate" },
@@ -78,6 +91,9 @@ Curated lists keep their source's curriculum order. The company lists are sorted
 their upstream order carries a frequency ranking this tool does not use — sorting makes regenerated
 diffs reviewable.
 
+`source_as_of` is a plain date rather than a `stale` boolean: nothing has to decide when a set stops
+being current, and the field cannot itself go out of date.
+
 ## Regenerating
 
 ```sh
@@ -87,11 +103,17 @@ python3 scripts/gen_sets.py
 Standard library only, no virtualenv. It fetches every source, resolves each problem, rewrites all
 ten files, and prints a per-set count.
 
+**Generation fails rather than shipping a short set.** If any slug does not resolve, or a set does
+not come out at the size recorded in `EXPECTED_COUNTS`, the script exits non-zero and writes
+nothing for that set — otherwise a "Blind 75" holding 74 problems could ship unnoticed. A genuine
+upstream change means updating `EXPECTED_COUNTS` deliberately, after reviewing the diff. The same
+counts are asserted again by the Rust tests in `src/sets/mod.rs`.
+
 **Slugs are the join key, fids come from LeetCode.** Sources disagree about ids — the company CSVs
 carry only a URL, and one NeetCode entry has a malformed id field (`135-candy` where every other
 entry is zero-padded to four digits). So the generator pulls the authoritative slug → frontend id
 index from `https://leetcode.com/api/problems/all/` and joins on that. A slug that does not resolve
-is reported and skipped, never guessed at.
+fails the run with an explanation, and is never guessed at.
 
 LeetCode has renamed seven problems since the 2022 company data was collected (`implement-strstr` →
 `find-the-index-of-the-first-occurrence-in-a-string`, `friend-circles` → `number-of-provinces`, and
@@ -103,10 +125,13 @@ out of the company sets.
 
 1. Add a source and an entry to the relevant table in `scripts/gen_sets.py`.
 2. Run it, and commit both the script change and the generated `data/sets/<slug>.toml`.
-3. Register the file in `REGISTRY` in `src/sets/mod.rs` — this is what makes the slug valid on the
+3. Add its size to `EXPECTED_COUNTS` in the generator, and to the matching table in
+   `src/sets/mod.rs`'s tests.
+4. Register the file in `REGISTRY` in `src/sets/mod.rs` — this is what makes the slug valid on the
    command line and in shell completions.
-4. Add a row to the table above.
+5. Add a row to the table above.
 
-Sets must come from a source that permits redistribution. All four sources currently shipped are
-MIT-licensed or fetched from LeetCode's own public endpoints; their licences are recorded per file
-and reproduced in `LICENSE`.
+Sets must come from a source that permits redistribution. The three sources shipped today are
+MIT-licensed or fetched from LeetCode's own public endpoints, and only problem identifiers are
+stored — never problem text. Each set records its source and licence, and `LICENSE` carries the
+upstream notices.

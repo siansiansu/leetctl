@@ -3,9 +3,9 @@ slug = "top-100-liked"
 name = "Top 100 Liked"
 description = "LeetCode's official Top 100 Liked study plan."
 source_url = "https://leetcode.com/studyplan/"
-source_license = "LeetCode study plan, fetched from leetcode.com"
+source_license = "Proprietary (LeetCode); problem identifiers only"
+source_as_of = "2026-08-17"
 generated_at = "2026-08-17"
-stale = false
 
 problems = [
   { fid = 17, slug = "letter-combinations-of-a-phone-number" },

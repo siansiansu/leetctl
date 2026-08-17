@@ -14,6 +14,7 @@ pub mod helper;
 pub mod plugins;
 #[cfg(feature = "pym")]
 pub mod pym;
+pub mod sets;
 
 // re-exports
 pub use cache::Cache;

@@ -2,7 +2,7 @@
 pub use self::{
     digit::Digit,
     file::{code_path, load_script, test_cases_path},
-    filter::{filter, squash},
+    filter::{Difficulty, filter, retain_set, squash},
     html::HTML,
 };
 
@@ -47,6 +47,44 @@ mod digit {
 /// Question filter tool
 mod filter {
     use crate::cache::models::Problem;
+
+    /// Problem difficulty, as a command-line value and as the integer the cache stores.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+    pub enum Difficulty {
+        Easy,
+        Medium,
+        Hard,
+    }
+
+    impl Difficulty {
+        /// `Problem::level` is 1/2/3. This is the only place that mapping is written down.
+        pub fn level(self) -> i32 {
+            match self {
+                Difficulty::Easy => 1,
+                Difficulty::Medium => 2,
+                Difficulty::Hard => 3,
+            }
+        }
+
+        /// Inverse of [`Difficulty::level`]; `None` for the levels LeetCode does not use.
+        pub fn from_level(level: i32) -> Option<Self> {
+            match level {
+                1 => Some(Difficulty::Easy),
+                2 => Some(Difficulty::Medium),
+                3 => Some(Difficulty::Hard),
+                _ => None,
+            }
+        }
+
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Difficulty::Easy => "Easy",
+                Difficulty::Medium => "Medium",
+                Difficulty::Hard => "Hard",
+            }
+        }
+    }
+
     /// Abstract query filter
     ///
     /// ```sh
@@ -66,17 +104,27 @@ mod filter {
                 'L' => ps.retain(|x| !x.locked),
                 's' => ps.retain(|x| x.starred),
                 'S' => ps.retain(|x| !x.starred),
-                'e' => ps.retain(|x| x.level == 1),
-                'E' => ps.retain(|x| x.level != 1),
-                'm' => ps.retain(|x| x.level == 2),
-                'M' => ps.retain(|x| x.level != 2),
-                'h' => ps.retain(|x| x.level == 3),
-                'H' => ps.retain(|x| x.level != 3),
+                'e' => ps.retain(|x| x.level == Difficulty::Easy.level()),
+                'E' => ps.retain(|x| x.level != Difficulty::Easy.level()),
+                'm' => ps.retain(|x| x.level == Difficulty::Medium.level()),
+                'M' => ps.retain(|x| x.level != Difficulty::Medium.level()),
+                'h' => ps.retain(|x| x.level == Difficulty::Hard.level()),
+                'H' => ps.retain(|x| x.level != Difficulty::Hard.level()),
                 'd' => ps.retain(|x| x.status == "ac"),
                 'D' => ps.retain(|x| x.status != "ac"),
                 _ => {}
             }
         }
+    }
+
+    /// Narrow to the members of a bundled problem set.
+    ///
+    /// Sets are keyed on the frontend id, so this joins on `Problem::fid` — unlike [`squash`],
+    /// which matches the internal ids the tag API returns against `Problem::id`.
+    pub fn retain_set(ps: &mut Vec<Problem>, set_slug: &str) -> crate::Result<()> {
+        let fids = crate::sets::get(set_slug)?.fids();
+        ps.retain(|p| fids.contains(&p.fid));
+        Ok(())
     }
 
     /// Squash questions and ids

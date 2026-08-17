@@ -4,8 +4,8 @@ name = "Blind 75"
 description = "The original Blind 75 list, as tracked by NeetCode."
 source_url = "https://github.com/neetcode-gh/leetcode"
 source_license = "MIT"
+source_as_of = "2026-08-17"
 generated_at = "2026-08-17"
-stale = false
 
 problems = [
   { fid = 217, slug = "contains-duplicate" },

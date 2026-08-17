@@ -4,8 +4,8 @@ name = "NeetCode 150"
 description = "NeetCode's 150-problem core list, a superset of Blind 75."
 source_url = "https://github.com/neetcode-gh/leetcode"
 source_license = "MIT"
+source_as_of = "2026-08-17"
 generated_at = "2026-08-17"
-stale = false
 
 problems = [
   { fid = 217, slug = "contains-duplicate" },

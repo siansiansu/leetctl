@@ -1,5 +1,9 @@
 //! list subcommand - List leetcode problems
-use crate::{cache::Cache, err::Error, helper::Digit};
+use crate::{
+    cache::Cache,
+    err::Error,
+    helper::{Difficulty, Digit},
+};
 use clap::Args;
 
 static CATEGORY_HELP: &str = r#"Filter problems by category name
@@ -22,6 +26,11 @@ static LIST_AFTER_HELP: &str = r#"EXAMPLES:
     leetctl list -q eD             List questions that with easy level and not done
     leetctl list -t linked-list    List questions that under tag "linked-list"
     leetctl list -r 50 100         List questions that has id in between 50 and 100
+    leetctl list -S blind75        List questions in the Blind 75 set
+    leetctl list -S blind75 -s     Show progress through the Blind 75 set
+    leetctl list -S google -D hard List hard questions in the Google set
+
+Run `leetctl sets` for the available --set values.
 "#;
 
 /// List command arguments
@@ -54,21 +63,28 @@ pub struct ListArgs {
     /// Filter questions by tag
     #[arg(short, long)]
     pub tag: Option<String>,
+
+    /// Filter questions by curated set, e.g. blind75, neetcode150, google
+    #[arg(
+        short = 'S',
+        long,
+        value_parser = clap::builder::PossibleValuesParser::new(crate::sets::slugs()),
+    )]
+    pub set: Option<String>,
+
+    /// Filter questions by difficulty
+    #[arg(short = 'D', long, value_enum, ignore_case = true)]
+    pub difficulty: Option<Difficulty>,
 }
 
 impl ListArgs {
     /// `list` command handler
     pub async fn run(&self) -> Result<(), Error> {
         trace!("Input list command...");
+        super::ensure_plan_supported(self.plan.as_ref())?;
 
         let cache = Cache::new()?;
-        let mut ps = cache.get_problems()?;
-
-        // if cache doesn't exist, request a new copy
-        if ps.is_empty() {
-            cache.download_problems().await?;
-            return Box::pin(self.run()).await;
-        }
+        let mut ps = super::populated_problems(&cache).await?;
 
         // filtering...
         // pym scripts
@@ -86,6 +102,11 @@ impl ListArgs {
             crate::helper::squash(&mut ps, ids)?;
         }
 
+        // filter curated set
+        if let Some(ref set_slug) = self.set {
+            crate::helper::retain_set(&mut ps, set_slug)?;
+        }
+
         // filter category
         if let Some(ref category) = self.category {
             ps.retain(|x| x.category == *category);
@@ -94,6 +115,11 @@ impl ListArgs {
         // filter query
         if let Some(ref query) = self.query {
             crate::helper::filter(&mut ps, query.to_string());
+        }
+
+        // filter difficulty
+        if let Some(difficulty) = self.difficulty {
+            ps.retain(|x| x.level == difficulty.level());
         }
 
         // filter range
@@ -141,11 +167,11 @@ impl ListArgs {
                     _ => {}
                 }
 
-                match p.level {
-                    1 => easy += 1,
-                    2 => medium += 1,
-                    3 => hard += 1,
-                    _ => {}
+                match Difficulty::from_level(p.level) {
+                    Some(Difficulty::Easy) => easy += 1,
+                    Some(Difficulty::Medium) => medium += 1,
+                    Some(Difficulty::Hard) => hard += 1,
+                    None => {}
                 }
             }
 

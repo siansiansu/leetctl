@@ -34,12 +34,7 @@ pub struct Problem {
 
 impl Problem {
     fn display_level(&self) -> &str {
-        match self.level {
-            1 => "Easy",
-            2 => "Medium",
-            3 => "Hard",
-            _ => "Unknown",
-        }
+        crate::helper::Difficulty::from_level(self.level).map_or("Unknown", |d| d.as_str())
     }
 
     pub fn desc_comment(&self, conf: &Config) -> String {
@@ -123,11 +118,14 @@ impl std::fmt::Display for Problem {
             name = truncated;
         }
 
-        level = match self.level {
-            1 => "Easy  ".bright_green(),
-            2 => "Medium".bright_yellow(),
-            3 => "Hard  ".bright_red(),
-            _ => level,
+        // Padded to the width of "Medium" so the columns line up.
+        level = match crate::helper::Difficulty::from_level(self.level) {
+            Some(d @ crate::helper::Difficulty::Easy) => format!("{:6}", d.as_str()).bright_green(),
+            Some(d @ crate::helper::Difficulty::Medium) => {
+                format!("{:6}", d.as_str()).bright_yellow()
+            }
+            Some(d @ crate::helper::Difficulty::Hard) => format!("{:6}", d.as_str()).bright_red(),
+            None => level,
         };
 
         let mut pct = self.percent.to_string();

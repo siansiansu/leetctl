@@ -7,8 +7,11 @@ Run from the repo root:
 
 Every set is keyed on the LeetCode frontend id (`fid`), which is what `Problem` in the local
 cache is filtered on. Sources give slugs (and sometimes a malformed id), so slugs are the join
-key and fids come from LeetCode's own problem index. A slug that does not resolve is reported
-and skipped rather than guessed at.
+key and fids come from LeetCode's own problem index. A slug that does not resolve fails the run
+rather than being guessed at or quietly dropped.
+
+Regeneration is all-or-nothing: every set is fetched, resolved, and rendered before anything is
+written, so a failure part-way through cannot leave data/sets/ half-updated.
 
 Only the standard library is used, so this needs no virtualenv.
 """
@@ -36,22 +39,25 @@ COMPANY_CSV_BASE = (
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "data", "sets")
 
+# `source_as_of` is the vintage of the DATA, not of the fetch — `generated_at` records the fetch.
+# It is a plain date so nothing has to judge whether a set counts as "stale"; readers compare it
+# against today themselves.
 NEETCODE_SOURCE = {
     "source_url": "https://github.com/neetcode-gh/leetcode",
     "source_license": "MIT",
-    "stale": False,
+    "source_as_of": None,  # tracks upstream; filled in with the generation date
 }
 LEETCODE_SOURCE = {
     "source_url": "https://leetcode.com/studyplan/",
-    "source_license": "LeetCode study plan, fetched from leetcode.com",
-    "stale": False,
+    "source_license": "Proprietary (LeetCode); problem identifiers only",
+    "source_as_of": None,
 }
-# The company lists are community-scraped 2022 frequency data, not live LeetCode company tags
-# (those are Premium-gated). They are marked stale so `leetctl sets` can say so out loud.
+# Not live LeetCode company tags — those are Premium-gated. This is a community-collected
+# snapshot of which problems carried each company's tag in 2022.
 COMPANY_SOURCE = {
     "source_url": "https://github.com/hxu296/leetcode-company-wise-problems-2022",
     "source_license": "MIT",
-    "stale": True,
+    "source_as_of": "2022",
 }
 
 # NeetCode's own data file carries `blind75` and `neetcode150` membership flags across its 450
@@ -110,6 +116,27 @@ COMPANIES = [
     ("amazon", "Amazon", "Amazon"),
     ("microsoft", "Microsoft", "Microsoft"),
 ]
+
+# Generation fails if a set does not come out at exactly this size. For the curated lists the
+# count is part of the name; for the company snapshots it is whatever the source held when the
+# data was last reviewed. Either way a drift means a source changed and someone should look,
+# rather than a set quietly shipping short.
+EXPECTED_COUNTS = {
+    "blind75": 75,
+    "neetcode150": 150,
+    "neetcode-all": 450,
+    "top-interview-150": 150,
+    "top-100-liked": 100,
+    "leetcode-75": 75,
+    "google": 488,
+    "facebook": 371,
+    "amazon": 592,
+    "microsoft": 363,
+}
+
+# Slugs a source lists that deliberately have no LeetCode counterpart any more. Empty today:
+# every slug across all ten sets resolves. An entry here must record why.
+KNOWN_OMISSIONS = {}
 
 
 def fetch(url, data=None):
@@ -174,48 +201,81 @@ def toml_string(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def write_set(slug, name, description, source, problem_slugs, fid_index, sort_by_fid):
+class GenerationError(Exception):
+    """A set could not be generated correctly. Raised before anything is written."""
+
+
+def resolve(slug, problem_slugs, fid_index):
+    """Slug list -> [(fid, slug)]. Raises rather than silently dropping an entry."""
     resolved = []
     unresolved = []
-    seen = set()
+    seen_fids = set()
     for problem_slug in problem_slugs:
         problem_slug = RENAMED_SLUGS.get(problem_slug, problem_slug)
+        if problem_slug in KNOWN_OMISSIONS.get(slug, ()):
+            continue
         fid = fid_index.get(problem_slug)
         if fid is None:
             unresolved.append(problem_slug)
             continue
-        if fid in seen:
+        if fid in seen_fids:
             continue
-        seen.add(fid)
+        seen_fids.add(fid)
         resolved.append((fid, problem_slug))
 
+    if unresolved:
+        raise GenerationError(
+            f"{slug}: {len(unresolved)} slug(s) do not resolve to a LeetCode frontend id: "
+            f"{', '.join(unresolved)}.\n"
+            f"  Either LeetCode renamed them — add the new slug to RENAMED_SLUGS, verified "
+            f"against the live index by frontend id — or they were removed, in which case add "
+            f"them to KNOWN_OMISSIONS[{slug!r}] with a reason."
+        )
+
+    expected = EXPECTED_COUNTS[slug]
+    if len(resolved) != expected:
+        raise GenerationError(
+            f"{slug}: resolved {len(resolved)} problems, expected {expected}. "
+            f"The source changed. Review the diff, then update EXPECTED_COUNTS."
+        )
+
+    return resolved
+
+
+def render_set(slug, name, description, source, problem_slugs, fid_index, sort_by_fid):
+    """Validate and render one set. Returns (slug, count, file contents) — writes nothing."""
+    resolved = resolve(slug, problem_slugs, fid_index)
     if sort_by_fid:
         resolved.sort()
 
+    generated_at = datetime.date.today().isoformat()
     lines = [
-        f"# @generated by scripts/gen_sets.py — do not edit by hand.",
+        "# @generated by scripts/gen_sets.py — do not edit by hand.",
         f"slug = {toml_string(slug)}",
         f"name = {toml_string(name)}",
         f"description = {toml_string(description)}",
         f"source_url = {toml_string(source['source_url'])}",
         f"source_license = {toml_string(source['source_license'])}",
-        f"generated_at = {toml_string(datetime.date.today().isoformat())}",
-        f"stale = {'true' if source['stale'] else 'false'}",
+        f"source_as_of = {toml_string(source['source_as_of'] or generated_at)}",
+        f"generated_at = {toml_string(generated_at)}",
         "",
         "problems = [",
     ]
     lines += [f"  {{ fid = {fid}, slug = {toml_string(s)} }}," for fid, s in resolved]
     lines += ["]", ""]
 
-    path = os.path.join(OUTPUT_DIR, f"{slug}.toml")
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines))
+    return slug, len(resolved), "\n".join(lines)
 
-    status = f"{slug:<20} {len(resolved):>4} problems"
-    if unresolved:
-        status += f"  ({len(unresolved)} unresolved: {', '.join(unresolved)})"
-    print(status)
-    return unresolved
+
+def write_all(rendered):
+    """Replace every output file, each written atomically via a temporary file + rename."""
+    for slug, count, contents in rendered:
+        path = os.path.join(OUTPUT_DIR, f"{slug}.toml")
+        temporary = f"{path}.tmp"
+        with open(temporary, "w", encoding="utf-8") as handle:
+            handle.write(contents)
+        os.replace(temporary, path)
+        print(f"{slug:<20} {count:>4} problems")
 
 
 def main():
@@ -229,33 +289,35 @@ def main():
     site_data = fetch_json(NEETCODE_SITE_DATA)
     print(f"  {len(site_data)} problems")
 
-    all_unresolved = {}
+    # Everything is fetched, validated and rendered first; only then is anything written, so a
+    # failure in the tenth set cannot leave the first nine rewritten against a half-read source.
+    rendered = []
+    try:
+        for slug, name, description, flag in NEETCODE_SETS:
+            rendered.append(render_set(
+                slug, name, description, NEETCODE_SOURCE,
+                neetcode_slugs(site_data, flag), fid_index, sort_by_fid=False,
+            ))
 
-    for slug, name, description, flag in NEETCODE_SETS:
-        all_unresolved[slug] = write_set(
-            slug, name, description, NEETCODE_SOURCE,
-            neetcode_slugs(site_data, flag), fid_index, sort_by_fid=False,
-        )
+        for slug, name, description in LEETCODE_STUDY_PLANS:
+            rendered.append(render_set(
+                slug, name, description, LEETCODE_SOURCE,
+                study_plan_slugs(slug), fid_index, sort_by_fid=False,
+            ))
 
-    for slug, name, description in LEETCODE_STUDY_PLANS:
-        all_unresolved[slug] = write_set(
-            slug, name, description, LEETCODE_SOURCE,
-            study_plan_slugs(slug), fid_index, sort_by_fid=False,
-        )
+        for slug, name, csv_name in COMPANIES:
+            description = (
+                f"Problems carrying the {name} tag in a community-collected 2022 snapshot."
+            )
+            rendered.append(render_set(
+                slug, name, description, COMPANY_SOURCE,
+                company_slugs(csv_name), fid_index, sort_by_fid=True,
+            ))
+    except GenerationError as error:
+        print(f"\nerror: {error}\nNothing was written.", file=sys.stderr)
+        raise SystemExit(1)
 
-    for slug, name, csv_name in COMPANIES:
-        description = (
-            f"Problems tagged {name} in community-collected 2022 interview frequency data."
-        )
-        all_unresolved[slug] = write_set(
-            slug, name, description, COMPANY_SOURCE,
-            company_slugs(csv_name), fid_index, sort_by_fid=True,
-        )
-
-    total_unresolved = sum(len(v) for v in all_unresolved.values())
-    if total_unresolved:
-        print(f"\n{total_unresolved} slug(s) could not be resolved to a frontend id.", file=sys.stderr)
-        print("They were skipped. Usually this means the problem was removed from LeetCode.", file=sys.stderr)
+    write_all(rendered)
 
 
 if __name__ == "__main__":
