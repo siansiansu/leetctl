@@ -122,37 +122,22 @@ pub fn progress(ps: &[Problem]) -> ProgressStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn problem(fid: i32, level: i32, name: &str) -> Problem {
-        Problem {
-            category: "algorithms".into(),
-            fid,
-            id: fid,
-            level,
-            locked: false,
-            name: name.into(),
-            percent: 50.0,
-            slug: name.to_lowercase().replace(' ', "-"),
-            starred: false,
-            status: String::new(),
-            desc: String::new(),
-        }
-    }
+    use crate::cache::models::fixture;
 
     /// Checked against data/sets/blind75.toml: 1, 11 and 217 are members; 4 and 42 are not.
     /// The levels are the fixture's own and do not have to match LeetCode's.
-    fn fixture() -> Vec<Problem> {
+    fn pool() -> Vec<Problem> {
         vec![
-            problem(217, 1, "Contains Duplicate"),
-            problem(1, 1, "Two Sum"),
-            problem(42, 1, "Trapping Rain Water"),
-            problem(4, 3, "Median of Two Sorted Arrays"),
-            problem(11, 2, "Container With Most Water"),
+            fixture(217, 1, "Contains Duplicate"),
+            fixture(1, 1, "Two Sum"),
+            fixture(42, 1, "Trapping Rain Water"),
+            fixture(4, 3, "Median of Two Sorted Arrays"),
+            fixture(11, 2, "Container With Most Water"),
         ]
     }
 
     fn narrowed(filters: &ProblemFilters) -> Vec<i32> {
-        let mut ps = fixture();
+        let mut ps = pool();
         apply(&mut ps, filters).unwrap();
         ps.iter().map(|p| p.fid).collect()
     }
@@ -189,7 +174,7 @@ mod tests {
             set: Some("not-a-set".into()),
             ..Default::default()
         };
-        let mut ps = fixture();
+        let mut ps = pool();
         assert!(matches!(
             apply(&mut ps, &filters),
             Err(Error::UnknownSet(_))
@@ -255,7 +240,7 @@ mod tests {
 
     #[test]
     fn progress_counts_status_difficulty_and_flags() {
-        let mut ps = fixture();
+        let mut ps = pool();
         ps[0].status = "ac".into();
         ps[1].status = "notac".into();
         ps[2].locked = true;

@@ -2,7 +2,7 @@
 use crate::{
     cmd::{
         CompletionsArgs, DataArgs, EditArgs, ExecArgs, ListArgs, PickArgs, SetsArgs, StatArgs,
-        TestArgs,
+        TestArgs, TuiArgs,
     },
     err::Error,
 };
@@ -70,8 +70,12 @@ pub enum Commands {
     #[command(visible_alias = "t", display_order = 8)]
     Test(TestArgs),
 
+    /// Browse problems in a terminal UI
+    #[command(display_order = 9)]
+    Tui(TuiArgs),
+
     /// Generate shell Completions
-    #[command(visible_alias = "c", display_order = 9)]
+    #[command(visible_alias = "c", display_order = 10)]
     Completions(CompletionsArgs),
 }
 
@@ -85,7 +89,11 @@ pub async fn main() -> Result<(), Error> {
         env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
     } else {
         env_logger::Builder::new()
-            .filter_level(LevelFilter::Info)
+            .filter_level(match cli.command {
+                // The TUI owns the screen; an `info!` from a cache download would paint over it.
+                Some(Commands::Tui(_)) => LevelFilter::Off,
+                _ => LevelFilter::Info,
+            })
             .format_timestamp(None)
             .init();
     }
@@ -99,6 +107,7 @@ pub async fn main() -> Result<(), Error> {
         Some(Commands::Sets(args)) => args.run(),
         Some(Commands::Stat(args)) => args.run().await,
         Some(Commands::Test(args)) => args.run().await,
+        Some(Commands::Tui(args)) => args.run().await,
         Some(Commands::Completions(args)) => {
             let mut cmd = Cli::command();
             args.run(&mut cmd)

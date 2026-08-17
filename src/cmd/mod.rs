@@ -10,6 +10,7 @@
 //!     sets    Show bundled problem sets
 //!     stat    Show simple chart about submissions [aliases: s]
 //!     test    Test a question [aliases: t]
+//!     tui     Browse problems interactively
 //!     completions    Generate shell completions [aliases: c]
 //!     help    Prints this message or the help of the given subcommand(s)
 //! ```
@@ -64,6 +65,7 @@ mod pick;
 mod sets;
 mod stat;
 mod test;
+mod tui;
 
 pub use completions::CompletionsArgs;
 pub use data::DataArgs;
@@ -74,3 +76,4 @@ pub use pick::PickArgs;
 pub use sets::SetsArgs;
 pub use stat::StatArgs;
 pub use test::TestArgs;
+pub use tui::TuiArgs;

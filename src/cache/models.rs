@@ -68,6 +68,25 @@ impl Problem {
     }
 }
 
+/// A problem with only the fields a test cares about set, and plausible defaults elsewhere.
+/// Internal id mirrors the frontend id, which keeps tag joins (`squash`) easy to reason about.
+#[cfg(test)]
+pub(crate) fn fixture(fid: i32, level: i32, name: &str) -> Problem {
+    Problem {
+        category: "algorithms".into(),
+        fid,
+        id: fid,
+        level,
+        locked: false,
+        name: name.into(),
+        percent: 50.0,
+        slug: name.to_lowercase().replace(' ', "-"),
+        starred: false,
+        status: String::new(),
+        desc: String::new(),
+    }
+}
+
 static DONE: &str = " ✔";
 static ETC: &str = "...";
 static LOCK: &str = "🔒";
@@ -641,22 +660,6 @@ impl Formatter for str {
 mod tests {
     use super::*;
 
-    fn problem(fid: i32, level: i32, name: &str) -> Problem {
-        Problem {
-            category: "algorithms".to_string(),
-            fid,
-            id: fid,
-            level,
-            locked: false,
-            name: name.to_string(),
-            percent: 50.0,
-            slug: name.to_lowercase().replace(' ', "-"),
-            starred: false,
-            status: String::new(),
-            desc: String::new(),
-        }
-    }
-
     /// The one shape a submission response needs for the accepted path: status 10, a compare
     /// string, and the internal problem id. `result_type` is `#[serde(skip)]` and defaults to
     /// `Run::Submit`, which is what a real submit carries.
@@ -680,7 +683,7 @@ mod tests {
 
     #[test]
     fn banner_names_the_problem_and_reads_as_in_flight() {
-        let rendered = problem(704, 1, "Binary Search").banner();
+        let rendered = fixture(704, 1, "Binary Search").banner();
 
         assert!(
             rendered.contains("704"),
