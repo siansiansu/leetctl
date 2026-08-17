@@ -4,16 +4,44 @@ on:
   push:
     tags:
       - "v*"
+
+permissions:
+  contents: write
+
 jobs:
   publish:
     name: Publish
-    # Specify OS
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v7
+
       - name: Install stable toolchain
-        run: rustup update stable && rustup default stable
-      - uses: katyo/publish-crates@v2
-        with:
-          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        uses: dtolnay/rust-toolchain@stable
+
+      # A crates.io release cannot be replaced or deleted, so a tag that disagrees
+      # with Cargo.toml would permanently burn a version number.
+      - name: Check the tag matches Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} means version ${tag}, but Cargo.toml says ${manifest}"
+            exit 1
+          fi
+          echo "publishing ${manifest}"
+
+      - name: Test
+        run: cargo test --locked --all-targets
+
+      - name: Publish to crates.io
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # Only after the publish succeeds — a release pointing at a version that
+      # never reached crates.io is worse than no release.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes
