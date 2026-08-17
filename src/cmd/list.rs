@@ -2,6 +2,7 @@
 use crate::{
     cache::Cache,
     err::Error,
+    filters::ProblemFilters,
     helper::{Difficulty, Digit},
 };
 use clap::Args;
@@ -86,8 +87,9 @@ impl ListArgs {
         let cache = Cache::new()?;
         let mut ps = super::populated_problems(&cache).await?;
 
-        // filtering...
-        // pym scripts
+        // Python plans stay here rather than in `ProblemFilters`: they are a CLI-only feature, and
+        // squashing by id intersects, so running this before or after the shared filters is the
+        // same set either way.
         #[cfg(feature = "pym")]
         {
             if let Some(ref plan) = self.plan {
@@ -96,100 +98,47 @@ impl ListArgs {
             }
         }
 
-        // filter tag
-        if let Some(ref tag) = self.tag {
-            let ids = cache.get_tagged_questions(tag).await?;
-            crate::helper::squash(&mut ps, ids)?;
-        }
+        let tag_ids = match self.tag {
+            Some(ref tag) => Some(cache.get_tagged_questions(tag).await?),
+            None => None,
+        };
 
-        // filter curated set
-        if let Some(ref set_slug) = self.set {
-            crate::helper::retain_set(&mut ps, set_slug)?;
-        }
-
-        // filter category
-        if let Some(ref category) = self.category {
-            ps.retain(|x| x.category == *category);
-        }
-
-        // filter query
-        if let Some(ref query) = self.query {
-            crate::helper::filter(&mut ps, query.to_string());
-        }
-
-        // filter difficulty
-        if let Some(difficulty) = self.difficulty {
-            ps.retain(|x| x.level == difficulty.level());
-        }
-
-        // filter range
-        if self.range.len() >= 2 {
-            ps.retain(|x| self.range[0] <= x.fid && x.fid <= self.range[1]);
-        }
-
-        // retain if keyword exists
-        if let Some(ref keyword) = self.keyword {
-            let lowercase_kw = keyword.to_lowercase();
-            ps.retain(|x| x.name.to_lowercase().contains(&lowercase_kw));
-        }
+        crate::filters::apply(
+            &mut ps,
+            &ProblemFilters {
+                keyword: self.keyword.clone(),
+                category: self.category.clone(),
+                query: self.query.clone(),
+                set: self.set.clone(),
+                difficulty: self.difficulty,
+                range: (self.range.len() >= 2).then(|| (self.range[0], self.range[1])),
+                tag_ids,
+            },
+        )?;
 
         // output problem lines sorted by [problem number] like
         // [ 1 ] Two Sum
         // [ 2 ] Add Two Numbers
-        ps.sort_unstable_by_key(|p| p.fid);
-
         let out: Vec<String> = ps.iter().map(ToString::to_string).collect();
         println!("{}", out.join("\n"));
 
         // one more thing, filter stat
         if self.stat {
-            let mut listed = 0;
-            let mut locked = 0;
-            let mut starred = 0;
-            let mut ac = 0;
-            let mut notac = 0;
-            let mut easy = 0;
-            let mut medium = 0;
-            let mut hard = 0;
-
-            for p in ps {
-                listed += 1;
-                if p.starred {
-                    starred += 1;
-                }
-                if p.locked {
-                    locked += 1;
-                }
-
-                match p.status.as_str() {
-                    "ac" => ac += 1,
-                    "notac" => notac += 1,
-                    _ => {}
-                }
-
-                match Difficulty::from_level(p.level) {
-                    Some(Difficulty::Easy) => easy += 1,
-                    Some(Difficulty::Medium) => medium += 1,
-                    Some(Difficulty::Hard) => hard += 1,
-                    None => {}
-                }
-            }
-
-            let remain = listed - ac - notac;
+            let stats = crate::filters::progress(&ps);
             println!(
                 "
         Listed: {}     Locked: {}     Starred: {}
         Accept: {}     Not-Ac: {}     Remain:  {}
         Easy  : {}     Medium: {}     Hard:    {}",
-                listed.digit(4),
-                locked.digit(4),
-                starred.digit(4),
-                ac.digit(4),
-                notac.digit(4),
-                remain.digit(4),
-                easy.digit(4),
-                medium.digit(4),
-                hard.digit(4),
+                stats.listed.digit(4),
+                stats.locked.digit(4),
+                stats.starred.digit(4),
+                stats.ac.digit(4),
+                stats.notac.digit(4),
+                stats.remain().digit(4),
+                stats.easy.digit(4),
+                stats.medium.digit(4),
+                stats.hard.digit(4),
             );
         }
         Ok(())
