@@ -9,9 +9,11 @@ use super::{difficulty_color, hints_line, pad1};
 use crate::cache::models::Problem;
 use crate::tui::Model;
 
-const DETAIL_HINTS: [(&str, &str); 4] = [
+const DETAIL_HINTS: [(&str, &str); 6] = [
     ("j/k", "scroll"),
-    ("gg/G", "top/bottom"),
+    ("e", "edit"),
+    ("t", "test"),
+    ("S", "submit"),
     ("?", "help"),
     ("esc", "back"),
 ];
@@ -130,13 +132,17 @@ fn draw_page(
     );
     f.render_widget(Paragraph::new(body), inner);
 
-    let footer = if m.status.is_empty() {
-        hints_line(hints)
-    } else {
-        Line::from(Span::styled(
+    // A run in flight outranks both: it is the thing the screen is waiting on.
+    let footer = match (&m.exec, m.status.is_empty()) {
+        (Some(exec), _) => Line::from(Span::styled(
+            exec.label(),
+            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        (None, true) => hints_line(hints),
+        (None, false) => Line::from(Span::styled(
             m.status.clone(),
             Style::new().fg(Color::Yellow),
-        ))
+        )),
     };
     f.render_widget(
         Paragraph::new(pad1(footer)),

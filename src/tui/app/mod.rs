@@ -4,11 +4,15 @@ mod list;
 mod run;
 
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
 
 use crossterm::event::KeyEvent;
 
-use crate::cache::models::Problem;
+use crate::cache::Run;
+use crate::cache::models::{Problem, VerifyResult};
 use crate::filters::{ProblemFilters, ProgressStats, progress};
 use crate::helper::Difficulty;
 use crate::tui::input::Input;
@@ -45,6 +49,61 @@ pub enum Msg {
     },
     /// Today's challenge, by frontend id.
     DailyLoaded(Result<i32>),
+    /// The solution file is on disk and can be opened.
+    CodeFileReady {
+        fid: i32,
+        res: Result<String>,
+    },
+    /// A finished test run or submission. Boxed: a `VerifyResult` is an order of magnitude larger
+    /// than any other message, and every message would otherwise be sized for it.
+    ExecDone {
+        generation: u64,
+        fid: i32,
+        kind: Run,
+        res: Result<Box<VerifyResult>>,
+    },
+    /// Advances the spinner while a run is in flight.
+    Tick,
+}
+
+/// How often the spinner advances while a test or submission is running.
+const SPINNER_INTERVAL: Duration = Duration::from_millis(150);
+
+const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// A test or submission the TUI is waiting on.
+pub(crate) struct ExecInFlight {
+    pub(crate) kind: Run,
+    pub(crate) fid: i32,
+    started: Instant,
+    frame: usize,
+}
+
+impl ExecInFlight {
+    /// `⠹ testing #1 · 3.2s` — proof that something is happening while LeetCode judges.
+    pub(crate) fn label(&self) -> String {
+        let verb = match self.kind {
+            Run::Test => "testing",
+            Run::Submit => "submitting",
+        };
+
+        format!(
+            "{} {verb} #{} · {:.1}s",
+            SPINNER_FRAMES[self.frame % SPINNER_FRAMES.len()],
+            self.fid,
+            self.started.elapsed().as_secs_f32()
+        )
+    }
+}
+
+/// The result of the last run, kept on screen until dismissed.
+pub(crate) struct ExecOutcome {
+    pub(crate) kind: Run,
+    /// Already formatted through `VerifyResult`'s `Display`, which is ANSI-free here because the
+    /// TUI turns `colored` off.
+    pub(crate) text: String,
+    pub(crate) accepted: bool,
+    pub(crate) scroll: usize,
 }
 
 /// Which screen is up. Prompts and the set picker are overlays on the list, not modes of their own.
@@ -94,6 +153,9 @@ struct Backend {
     rt: tokio::runtime::Handle,
     cache: Cache,
     tx: Sender<Msg>,
+    /// Set while an editor owns the terminal, so the input thread stops reading keys the editor
+    /// should be getting.
+    suspended: Arc<AtomicBool>,
 }
 
 impl Backend {
@@ -127,6 +189,49 @@ impl Backend {
         let tx = self.tx.clone();
         self.rt.spawn(async move {
             let _ = tx.send(Msg::DailyLoaded(cache.get_daily_problem_id().await));
+        });
+    }
+
+    fn prepare_code_file(&self, fid: i32) {
+        let cache = self.cache.clone();
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            let res = crate::scaffold::ensure_code_file(
+                &cache,
+                fid,
+                None,
+                crate::scaffold::Announce::Silent,
+            )
+            .await;
+            let _ = tx.send(Msg::CodeFileReady { fid, res });
+        });
+    }
+
+    fn exec(&self, fid: i32, kind: Run, generation: u64) {
+        let cache = self.cache.clone();
+        let tx = self.tx.clone();
+        let run = kind.clone();
+        self.rt.spawn(async move {
+            let res = cache
+                .exec_problem(fid, run.clone(), None)
+                .await
+                .map(Box::new);
+            let _ = tx.send(Msg::ExecDone {
+                generation,
+                fid,
+                kind: run,
+                res,
+            });
+        });
+    }
+
+    /// One delayed tick. The handler asks for the next one while a run is still going, so the chain
+    /// stops on its own instead of needing a thread to be told to stop.
+    fn schedule_tick(&self) {
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            tokio::time::sleep(SPINNER_INTERVAL).await;
+            let _ = tx.send(Msg::Tick);
         });
     }
 
@@ -175,6 +280,14 @@ pub struct Model {
     pub(crate) daily_fid: Option<i32>,
     /// `D` was pressed before the answer arrived, so jump as soon as it does.
     daily_jump_pending: bool,
+    pub(crate) exec: Option<ExecInFlight>,
+    pub(crate) outcome: Option<ExecOutcome>,
+    /// Identifies the newest run, so a superseded one cannot report over it.
+    exec_gen: u64,
+    /// Frontend id awaiting a yes/no before it is submitted.
+    pub(crate) confirm_submit: Option<i32>,
+    /// A solution file the run loop should open in the editor, once it can free the terminal.
+    editor_request: Option<String>,
     pub(crate) cursor: usize,
     /// First visible row, moved only to keep the cursor on screen.
     pub(crate) row_offset: usize,
@@ -189,12 +302,13 @@ pub struct Model {
 }
 
 impl Model {
-    fn new(opts: Options, tx: Sender<Msg>) -> Self {
+    fn new(opts: Options, tx: Sender<Msg>, suspended: Arc<AtomicBool>) -> Self {
         Self {
             backend: Some(Backend {
                 rt: opts.rt,
                 cache: opts.cache,
                 tx,
+                suspended,
             }),
             all: Vec::new(),
             filtered: Vec::new(),
@@ -213,6 +327,11 @@ impl Model {
             desc_gen: 0,
             daily_fid: None,
             daily_jump_pending: false,
+            exec: None,
+            outcome: None,
+            exec_gen: 0,
+            confirm_submit: None,
+            editor_request: None,
             cursor: 0,
             row_offset: 0,
             goto_pending: false,
@@ -284,6 +403,50 @@ impl Model {
                     }
                 }
             },
+            Msg::CodeFileReady { fid, res } => match res {
+                Ok(path) => {
+                    self.status.clear();
+                    self.editor_request = Some(path);
+                }
+                Err(e) => self.status = format!("Could not prepare the file for #{fid}: {e}"),
+            },
+            Msg::ExecDone {
+                generation,
+                fid,
+                kind,
+                res,
+            } => {
+                if generation != self.exec_gen {
+                    return;
+                }
+                self.exec = None;
+                match res {
+                    Ok(result) => {
+                        let accepted = result.is_accepted();
+                        if accepted {
+                            // `exec_problem` already wrote this to sqlite; the rows on screen are
+                            // copies, so they need telling too.
+                            self.mark_solved(fid);
+                        }
+                        self.status.clear();
+                        self.outcome = Some(ExecOutcome {
+                            kind,
+                            text: result.to_string(),
+                            accepted,
+                            scroll: 0,
+                        });
+                    }
+                    Err(e) => self.status = e.to_string(),
+                }
+            }
+            Msg::Tick => {
+                if let Some(exec) = &mut self.exec {
+                    exec.frame += 1;
+                    if let Some(backend) = &self.backend {
+                        backend.schedule_tick();
+                    }
+                }
+            }
             Msg::TagIdsLoaded { generation, res } => {
                 if generation != self.tag_gen {
                     return;
@@ -498,6 +661,98 @@ impl Model {
         }
     }
 
+    /// Prepares the solution file for the selected problem; the run loop opens the editor once the
+    /// file is there, because only it can hand over the terminal.
+    pub(crate) fn request_editor(&mut self) {
+        let Some(fid) = self.detail_fid.or_else(|| self.selected().map(|p| p.fid)) else {
+            return;
+        };
+
+        self.status = format!("Preparing the solution file for #{fid}…");
+        if let Some(backend) = &self.backend {
+            backend.prepare_code_file(fid);
+        }
+    }
+
+    /// The file the run loop should open, taken so it is opened once.
+    pub(crate) fn take_editor_request(&mut self) -> Option<String> {
+        self.editor_request.take()
+    }
+
+    /// The editor to open `path` with, and the flag that quiets the input thread while it runs.
+    pub(crate) fn editor_command(
+        &self,
+        path: String,
+    ) -> Option<(crate::scaffold::EditorCommand, Arc<AtomicBool>)> {
+        let backend = self.backend.as_ref()?;
+        match crate::scaffold::editor_command(&backend.cache.0.conf, path) {
+            Ok(command) => Some((command, backend.suspended.clone())),
+            Err(_) => None,
+        }
+    }
+
+    /// Runs the sample tests, or submits. One at a time: a second run would report over the first.
+    pub(crate) fn start_exec(&mut self, kind: Run) {
+        let Some(fid) = self.detail_fid else { return };
+        if self.exec.is_some() {
+            self.status = "A run is already in flight.".to_string();
+            return;
+        }
+
+        self.outcome = None;
+        self.exec_gen += 1;
+        self.exec = Some(ExecInFlight {
+            kind: kind.clone(),
+            fid,
+            started: Instant::now(),
+            frame: 0,
+        });
+        if let Some(backend) = &self.backend {
+            backend.exec(fid, kind, self.exec_gen);
+            backend.schedule_tick();
+        }
+    }
+
+    /// Submitting is the one irreversible action here, so it asks first.
+    pub(crate) fn ask_to_submit(&mut self) {
+        if let Some(fid) = self.detail_fid {
+            self.confirm_submit = Some(fid);
+        }
+    }
+
+    pub(crate) fn confirm_submit(&mut self) {
+        if self.confirm_submit.take().is_some() {
+            self.start_exec(Run::Submit);
+        }
+    }
+
+    pub(crate) fn cancel_submit(&mut self) {
+        self.confirm_submit = None;
+    }
+
+    pub(crate) fn dismiss_outcome(&mut self) {
+        self.outcome = None;
+    }
+
+    /// Scrolls the result pane, clamped to its text.
+    pub(crate) fn scroll_outcome(&mut self, delta: isize) {
+        let rows = self.rows_height();
+        let Some(outcome) = &mut self.outcome else {
+            return;
+        };
+
+        let last = outcome.text.lines().count().saturating_sub(rows) as isize;
+        outcome.scroll = (outcome.scroll as isize + delta).clamp(0, last.max(0)) as usize;
+    }
+
+    fn mark_solved(&mut self, fid: i32) {
+        for problem in self.all.iter_mut().chain(self.filtered.iter_mut()) {
+            if problem.fid == fid {
+                problem.status = "ac".to_string();
+            }
+        }
+    }
+
     /// Whether anything is narrowing the list, which is what makes `esc` worth offering.
     pub(crate) fn has_filters(&self) -> bool {
         self.filters.set.is_some()
@@ -586,6 +841,11 @@ pub(crate) fn test_model() -> Model {
         desc_gen: 0,
         daily_fid: None,
         daily_jump_pending: false,
+        exec: None,
+        outcome: None,
+        exec_gen: 0,
+        confirm_submit: None,
+        editor_request: None,
         cursor: 0,
         row_offset: 0,
         goto_pending: false,

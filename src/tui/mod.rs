@@ -15,4 +15,4 @@ pub use app::{Options, run};
 pub(crate) use app::{Mode, Model, Prompt, PromptKind, ROWS_MARGIN, SetChoice};
 
 #[cfg(test)]
-pub(crate) use app::test_model;
+pub(crate) use app::{ExecOutcome, test_model};

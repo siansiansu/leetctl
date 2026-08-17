@@ -33,7 +33,13 @@ impl EditArgs {
         };
 
         let id = self.id.or(daily_id).ok_or(Error::NoneError)?;
-        let path = crate::scaffold::ensure_code_file(&cache, id, self.lang.clone()).await?;
+        let path = crate::scaffold::ensure_code_file(
+            &cache,
+            id,
+            self.lang.clone(),
+            crate::scaffold::Announce::Print,
+        )
+        .await?;
 
         // Re-read the config rather than threading it out of the scaffold: a `--lang` override only
         // touches `code.lang`, which the editor invocation does not read.

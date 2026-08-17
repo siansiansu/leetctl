@@ -2,12 +2,27 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::Model;
+use crate::cache::Run;
 
 pub(super) fn update(m: &mut Model, k: KeyEvent) {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
 
     if ctrl && k.code == KeyCode::Char('c') {
         m.quit();
+        return;
+    }
+
+    // A pending submission is a question; nothing else happens until it is answered.
+    if m.confirm_submit.is_some() {
+        match k.code {
+            KeyCode::Char('y') => m.confirm_submit(),
+            _ => m.cancel_submit(),
+        }
+        return;
+    }
+
+    if m.outcome.is_some() {
+        update_outcome(m, k, ctrl);
         return;
     }
 
@@ -27,6 +42,24 @@ pub(super) fn update(m: &mut Model, k: KeyEvent) {
         KeyCode::Char('g') => m.goto_pending = true,
         KeyCode::Char('G') => m.detail_scroll = m.detail_last_scroll(),
         KeyCode::Char('?') => m.open_help(),
+        KeyCode::Char('e') => m.request_editor(),
+        KeyCode::Char('t') => m.start_exec(Run::Test),
+        KeyCode::Char('S') => m.ask_to_submit(),
+        _ => {}
+    }
+}
+
+/// Keys while a result is on screen: scroll it, run again, or dismiss it.
+fn update_outcome(m: &mut Model, k: KeyEvent, ctrl: bool) {
+    match k.code {
+        KeyCode::Esc | KeyCode::Char('q') => m.dismiss_outcome(),
+        KeyCode::Char('j') | KeyCode::Down => m.scroll_outcome(1),
+        KeyCode::Char('k') | KeyCode::Up => m.scroll_outcome(-1),
+        KeyCode::Char('d') if ctrl => m.scroll_outcome(half_page(m)),
+        KeyCode::Char('u') if ctrl => m.scroll_outcome(-half_page(m)),
+        KeyCode::Char('e') => m.request_editor(),
+        KeyCode::Char('t') => m.start_exec(Run::Test),
+        KeyCode::Char('S') => m.ask_to_submit(),
         _ => {}
     }
 }
@@ -183,5 +216,219 @@ mod tests {
         m.open_help();
         update_help(&mut m, ctrl('c'));
         assert!(m.should_quit());
+    }
+
+    fn verify_result(json: &str) -> crate::cache::models::VerifyResult {
+        serde_json::from_str(json).expect("fixture should deserialize")
+    }
+
+    /// A submission LeetCode accepted. `result_type` is `#[serde(skip)]` and defaults to `Submit`.
+    fn accepted() -> crate::cache::models::VerifyResult {
+        verify_result(
+            r#"{"state":"SUCCESS","status_code":10,"status_msg":"Accepted",
+                "status_runtime":"4 ms","status_memory":"2.1 MB",
+                "compare_result":"111","question_id":"1","pretty_lang":"Rust"}"#,
+        )
+    }
+
+    fn exec_done(
+        generation: u64,
+        fid: i32,
+        kind: Run,
+        result: crate::cache::models::VerifyResult,
+    ) -> super::super::Msg {
+        super::super::Msg::ExecDone {
+            generation,
+            fid,
+            kind,
+            res: Ok(Box::new(result)),
+        }
+    }
+
+    #[test]
+    fn t_starts_a_test_run_and_the_footer_reports_it() {
+        let mut m = detail_model(3);
+
+        update(&mut m, key(KeyCode::Char('t')));
+
+        let exec = m.exec.as_ref().expect("a run is in flight");
+        assert!(matches!(exec.kind, Run::Test));
+        assert_eq!(exec.fid, 1);
+        assert!(exec.label().contains("testing #1"), "{}", exec.label());
+    }
+
+    #[test]
+    fn a_second_run_is_refused_rather_than_reporting_over_the_first() {
+        let mut m = detail_model(3);
+        update(&mut m, key(KeyCode::Char('t')));
+
+        update(&mut m, key(KeyCode::Char('t')));
+
+        assert!(m.status.contains("already in flight"), "{}", m.status);
+    }
+
+    #[test]
+    fn a_result_from_a_superseded_run_is_dropped() {
+        let mut m = detail_model(3);
+        update(&mut m, key(KeyCode::Char('t')));
+
+        m.handle(exec_done(0, 1, Run::Test, accepted()));
+
+        assert!(m.outcome.is_none(), "the stale answer is ignored");
+        assert!(m.exec.is_some(), "and the current run is still waiting");
+    }
+
+    #[test]
+    fn submitting_asks_first_and_can_be_cancelled() {
+        let mut m = detail_model(3);
+
+        update(&mut m, key(KeyCode::Char('S')));
+        assert_eq!(m.confirm_submit, Some(1));
+        assert!(m.exec.is_none(), "nothing is sent before the answer");
+
+        update(&mut m, key(KeyCode::Char('n')));
+        assert!(m.confirm_submit.is_none());
+        assert!(m.exec.is_none());
+
+        update(&mut m, key(KeyCode::Char('S')));
+        update(&mut m, key(KeyCode::Char('y')));
+        assert!(matches!(
+            m.exec.as_ref().map(|e| e.kind.clone()),
+            Some(Run::Submit)
+        ));
+    }
+
+    #[test]
+    fn an_accepted_submission_marks_the_row_solved_immediately() {
+        let mut m = detail_model(3);
+        update(&mut m, key(KeyCode::Char('S')));
+        update(&mut m, key(KeyCode::Char('y')));
+
+        m.handle(exec_done(1, 1, Run::Submit, accepted()));
+
+        let outcome = m.outcome.as_ref().expect("a result is on screen");
+        assert!(outcome.accepted);
+        assert!(outcome.text.contains("Success"));
+        assert_eq!(m.all[0].status, "ac", "the cached row is stale otherwise");
+        assert_eq!(m.filtered[0].status, "ac");
+        assert!(m.exec.is_none(), "the spinner stops");
+    }
+
+    #[test]
+    fn a_failed_run_shows_the_error_and_leaves_no_result_pane() {
+        let mut m = detail_model(3);
+        update(&mut m, key(KeyCode::Char('t')));
+
+        m.handle(super::super::Msg::ExecDone {
+            generation: 1,
+            fid: 1,
+            kind: Run::Test,
+            res: Err(crate::Error::CookieError),
+        });
+
+        assert!(m.outcome.is_none());
+        assert!(m.status.contains("cookies"), "{}", m.status);
+    }
+
+    #[test]
+    fn the_result_pane_scrolls_and_dismisses() {
+        let mut m = detail_model(3);
+        m.outcome = Some(super::super::ExecOutcome {
+            kind: Run::Test,
+            text: (0..60)
+                .map(|i| format!("out{i}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            accepted: false,
+            scroll: 0,
+        });
+
+        // trace: 60 lines against 25 visible rows scrolls to 35.
+        update(&mut m, key(KeyCode::Char('G')));
+        assert_eq!(
+            m.outcome.as_ref().unwrap().scroll,
+            0,
+            "G is not a result-pane key"
+        );
+
+        update(&mut m, key(KeyCode::Char('j')));
+        assert_eq!(m.outcome.as_ref().unwrap().scroll, 1);
+        update(&mut m, ctrl('d'));
+        assert_eq!(m.outcome.as_ref().unwrap().scroll, 13);
+        update(&mut m, ctrl('u'));
+        assert_eq!(m.outcome.as_ref().unwrap().scroll, 1);
+
+        update(&mut m, key(KeyCode::Esc));
+        assert!(m.outcome.is_none());
+        assert_eq!(m.mode, Mode::Detail, "esc closed the result, not the page");
+    }
+
+    #[test]
+    fn a_result_on_screen_does_not_swallow_a_re_run() {
+        let mut m = detail_model(3);
+        m.outcome = Some(super::super::ExecOutcome {
+            kind: Run::Test,
+            text: "out".into(),
+            accepted: false,
+            scroll: 0,
+        });
+
+        update(&mut m, key(KeyCode::Char('t')));
+
+        assert!(m.exec.is_some());
+        assert!(
+            m.outcome.is_none(),
+            "the old result gives way to the new run"
+        );
+    }
+
+    #[test]
+    fn the_spinner_advances_only_while_a_run_is_in_flight() {
+        let mut m = detail_model(3);
+        update(&mut m, key(KeyCode::Char('t')));
+        let first = m.exec.as_ref().unwrap().label();
+
+        m.handle(super::super::Msg::Tick);
+        assert_ne!(m.exec.as_ref().unwrap().label()[..3], first[..3]);
+
+        m.handle(exec_done(1, 1, Run::Test, accepted()));
+        m.handle(super::super::Msg::Tick);
+        assert!(m.exec.is_none(), "a tick after the run does nothing");
+    }
+
+    #[test]
+    fn e_asks_for_the_solution_file_and_the_loop_gets_a_path_to_open() {
+        let mut m = detail_model(3);
+
+        update(&mut m, key(KeyCode::Char('e')));
+        assert!(m.status.contains("Preparing"), "{}", m.status);
+
+        m.handle(super::super::Msg::CodeFileReady {
+            fid: 1,
+            res: Ok("/tmp/1.two-sum.py".into()),
+        });
+
+        assert_eq!(
+            m.take_editor_request().as_deref(),
+            Some("/tmp/1.two-sum.py")
+        );
+        assert!(
+            m.take_editor_request().is_none(),
+            "opened once, not every frame"
+        );
+        assert!(m.status.is_empty());
+    }
+
+    #[test]
+    fn a_file_that_could_not_be_prepared_says_so_and_opens_nothing() {
+        let mut m = detail_model(3);
+
+        m.handle(super::super::Msg::CodeFileReady {
+            fid: 1,
+            res: Err(crate::Error::NoneError),
+        });
+
+        assert!(m.take_editor_request().is_none());
+        assert!(m.status.contains("#1"), "{}", m.status);
     }
 }

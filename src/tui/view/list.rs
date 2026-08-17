@@ -18,23 +18,25 @@ const FIXED_COLUMNS_WIDTH: u16 = 2 + 2 + 7 + 6 + 7 + 4;
 /// as a column of punctuation.
 const MIN_WIDTH: u16 = FIXED_COLUMNS_WIDTH + 12;
 
-const LIST_HINTS: [(&str, &str); 7] = [
+const LIST_HINTS: [(&str, &str); 8] = [
     ("j/k", "move"),
     ("/", "search"),
     ("s", "set"),
     ("d", "difficulty"),
     ("u", "unsolved"),
     ("enter", "open"),
+    ("e", "edit"),
     ("?", "help"),
 ];
 
 /// With any filter on, `esc` is the way back out, so it earns a slot.
-const LIST_HINTS_FILTERED: [(&str, &str); 7] = [
+const LIST_HINTS_FILTERED: [(&str, &str); 8] = [
     ("j/k", "move"),
     ("/", "search"),
     ("s", "set"),
     ("d", "difficulty"),
     ("u", "unsolved"),
+    ("e", "edit"),
     ("esc", "clear filters"),
     ("?", "help"),
 ];

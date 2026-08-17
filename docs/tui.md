@@ -1,10 +1,5 @@
 # Terminal UI
 
-> **Being built.** This is the design document for `leetctl tui`, written before the code. The
-> [roadmap](#roadmap) below tracks which phases have landed; anything in a pending phase does not
-> exist yet. Sections describing behavior are the contract the implementation is held to, not a
-> record of what ships today.
-
 `leetctl tui` opens an interactive problem browser: one table of every problem, live filtering by
 set / difficulty / tag / free text, the problem description inline, and edit / test / submit without
 leaving the screen.
@@ -36,8 +31,9 @@ constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 | `esc` | list | drop every filter at once |
 | `D` | list | jump to today's daily challenge |
 | `e` | list, detail | open the solution file in `$EDITOR` |
-| `t` | detail | run the sample tests |
-| `S` | detail | submit (asks first) |
+| `t` | description | run the sample tests |
+| `S` | description | submit — asks `y` / `n` first |
+| `j` / `k`, `esc` | result pane | scroll the result, or close it |
 | `?` | anywhere | help |
 | `q` | list | quit |
 
@@ -54,6 +50,11 @@ without it three letters match hundreds of four thousand problems.
 `e` prepares the solution file exactly as `leetctl edit` does, including the language markers and
 the test-case file, then hands the terminal to your editor. Editor resolution is unchanged —
 `$VISUAL`, then `$EDITOR`, then `code.editor` from the config. See [editors](./editors.md).
+
+`t` and `S` run one at a time, with a spinner and an elapsed count while LeetCode judges. The result
+opens in a pane over the description, scrollable, with `t` and `S` available again from there. An
+accepted submission flips the row to solved immediately — the cache row is written by the submission
+itself, but the copies on screen have to be told.
 
 ## Architecture
 
@@ -84,10 +85,15 @@ receives messages.
 ### Suspending for the editor
 
 `e` cannot just spawn the editor: two readers on the same tty fight over keystrokes. So the UI
-thread sets a `suspended` flag, the input thread parks after its current 150 ms poll, the terminal
-is restored (alt screen off, raw mode off), the editor runs to completion, and then the terminal is
-re-initialized and the input thread unparked. The editor owns the terminal for as long as it is
-open, which is why blocking the UI thread here is correct rather than a compromise.
+thread sets a `suspended` flag, the input thread stands down after its current 150 ms poll, the
+terminal is restored (alt screen off, raw mode off), the editor runs to completion, and then the
+terminal is re-initialized and the input thread resumes. The editor owns the terminal for as long as
+it is open, which is why blocking the UI thread here is correct rather than a compromise.
+
+Resuming deliberately does **not** call `Terminal::clear`: that asks the terminal where the cursor
+is and waits for the answer (`ratatui-core`'s `buffers.rs`), which not every terminal sends — the
+first version of this hung there and then exited. A freshly initialized terminal has an empty back
+buffer, so the next draw repaints every cell anyway.
 
 ### One filter engine
 
@@ -135,7 +141,7 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
 | 3 | `leetctl tui`, event loop, problem table | Merged |
 | 4 | Filtering: text, set, difficulty, tag | Merged |
 | 5 | Detail view, help, daily challenge | Merged |
-| 6 | Edit, test, submit | Pending |
+| 6 | Edit, test, submit | Merged |
 
 Phases 1 and 2 are behavior-preserving refactors of the existing commands: `leetctl list`, `pick`,
 `edit`, `test`, and `exec` must produce identical output across them, with one documented exception

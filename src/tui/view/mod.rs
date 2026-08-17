@@ -19,7 +19,12 @@ pub(crate) fn draw(m: &Model, f: &mut Frame) {
 
     match m.mode {
         Mode::Help => detail::draw_help(m, f),
-        Mode::Detail => detail::draw_detail(m, f),
+        Mode::Detail => {
+            detail::draw_detail(m, f);
+            // A result covers the description; the confirm sits over whatever is there.
+            overlays::draw_outcome(m, f);
+            overlays::draw_submit_confirm(m, f);
+        }
         Mode::List => {
             list::draw_list(m, f);
             // The picker floats over the table it is narrowing.
@@ -379,6 +384,65 @@ mod tests {
         );
     }
 
+    /// A description page with a finished test run on it.
+    fn model_with_outcome(accepted: bool, kind: crate::cache::Run) -> crate::tui::Model {
+        let mut m = listed_model();
+        m.descriptions.insert(1, "Given an array.".into());
+        m.open_detail();
+        m.outcome = Some(crate::tui::ExecOutcome {
+            kind,
+            text: "Success\n\nRuntime: 4 ms, faster than 91% of Rust online submissions.".into(),
+            accepted,
+            scroll: 0,
+        });
+        m
+    }
+
+    #[test]
+    fn a_run_in_flight_shows_a_spinner_instead_of_the_hints() {
+        let mut m = listed_model();
+        m.descriptions.insert(1, "Given an array.".into());
+        m.open_detail();
+        m.start_exec(crate::cache::Run::Test);
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("testing #1"), "{screen}");
+        assert!(!screen.contains("esc:back"), "hints step aside:\n{screen}");
+    }
+
+    #[test]
+    fn an_accepted_submission_is_titled_accepted() {
+        let m = model_with_outcome(true, crate::cache::Run::Submit);
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("accepted"), "{screen}");
+        assert!(screen.contains("faster than 91%"), "{screen}");
+        assert!(screen.contains("t:test again"), "{screen}");
+    }
+
+    #[test]
+    fn a_test_run_is_titled_as_a_test_run() {
+        let m = model_with_outcome(false, crate::cache::Run::Test);
+
+        assert!(render(&m, 80, 20).contains("test run"));
+    }
+
+    #[test]
+    fn the_submit_confirm_names_the_problem_and_both_answers() {
+        let mut m = listed_model();
+        m.descriptions.insert(1, "Given an array.".into());
+        m.open_detail();
+        m.ask_to_submit();
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("Submit [1] Two Sum?"), "{screen}");
+        assert!(screen.contains("y submit"), "{screen}");
+        assert!(screen.contains("n / esc cancel"), "{screen}");
+    }
+
     #[test]
     fn a_terminal_too_small_to_lay_out_renders_without_panicking() {
         for mode in [Mode::List, Mode::Detail, Mode::Help] {
@@ -386,6 +450,15 @@ mod tests {
                 let mut m = listed_model();
                 m.mode = mode;
                 m.detail_fid = Some(1);
+                // Overlays too: they are the widest thing drawn and the most likely to overflow.
+                m.open_picker();
+                m.ask_to_submit();
+                m.outcome = Some(crate::tui::ExecOutcome {
+                    kind: crate::cache::Run::Test,
+                    text: "Wrong Answer\nexpected [0,1]".into(),
+                    accepted: false,
+                    scroll: 0,
+                });
                 let screen = render(&m, w, h);
                 assert_eq!(screen.lines().count(), h as usize, "{mode:?} at {w}x{h}");
             }

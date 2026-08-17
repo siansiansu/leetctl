@@ -58,10 +58,25 @@ and flags. The headline ones:
 | `test` | `t` | Run test cases; `--watch` re-runs on save, `--daily` targets today's challenge |
 | `exec` | `x` | Submit the solution |
 | `list` | `l` | List/filter problems by set, category, tag, difficulty, id range, or `--query` |
+| `tui` | | Browse, filter, read, test and submit in a terminal UI; `--set` / `--difficulty` open pre-filtered |
 | `sets` | | Show the bundled problem sets; `--sources` adds provenance |
 | `stat` | `s` | Show a chart of your submissions |
 | `data` | `d` | Manage the local cache (`--update`, `--delete`) |
 | `completions` | `c` | Generate shell completions (`bash`, `elvish`, `fish`, `powershell`, `zsh`) |
+
+### The terminal UI
+
+```sh
+leetctl tui                      # every problem
+leetctl tui -S blind75 -D medium # opens pre-filtered
+```
+
+One table of every problem with live filtering (`/` search, `s` set, `d` difficulty, `u` unsolved,
+`t` tag), the description on `enter`, today's challenge on `D`, and `e` / `t` / `S` to edit, test and
+submit without leaving the screen. `?` lists every key. Filters and progress counts come from the
+same engine as `leetctl list`, so the footer matches `leetctl list --stat`.
+
+Full reference, including the threading contract: [Terminal UI](./docs/tui.md).
 
 ### Picking a problem
 

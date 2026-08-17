@@ -1,4 +1,6 @@
 //! Terminal setup, the input thread, and the draw/handle loop
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyEventKind};
@@ -23,7 +25,8 @@ pub fn run(opts: Options) -> Result<()> {
     colored::control::set_override(false);
 
     let (tx, rx) = std::sync::mpsc::channel::<Msg>();
-    let mut model = Model::new(opts, tx.clone());
+    let suspended = Arc::new(AtomicBool::new(false));
+    let mut model = Model::new(opts, tx.clone(), suspended.clone());
     model.init();
 
     let mut terminal = ratatui::init();
@@ -32,7 +35,7 @@ pub fn run(opts: Options) -> Result<()> {
         model.height = size.height;
     }
 
-    spawn_input_thread(tx);
+    spawn_input_thread(tx, suspended);
 
     let res = loop {
         model.ensure_cursor_visible();
@@ -50,16 +53,58 @@ pub fn run(opts: Options) -> Result<()> {
         if model.should_quit() {
             break Ok(());
         }
+
+        if let Some(path) = model.take_editor_request() {
+            open_editor(&mut terminal, &mut model, path);
+        }
     };
 
     ratatui::restore();
     res
 }
 
+/// Hands the terminal to the editor and takes it back afterwards.
+///
+/// Blocking the UI thread is the point: the editor owns the terminal until it exits, and nothing
+/// should be drawn over it. The input thread is told to stand down first, because two readers on the
+/// same tty would each swallow half the keystrokes.
+fn open_editor(terminal: &mut ratatui::DefaultTerminal, model: &mut Model, path: String) {
+    let Some((editor, suspended)) = model.editor_command(path) else {
+        model.status = "Could not work out which editor to use; check `code.editor`.".to_string();
+        return;
+    };
+
+    suspended.store(true, Ordering::SeqCst);
+    ratatui::restore();
+
+    let status = std::process::Command::new(&editor.program)
+        .envs(editor.envs)
+        .args(editor.args)
+        .status();
+
+    // A fresh terminal starts with an empty back buffer, so the next draw repaints every cell.
+    // `Terminal::clear` would look tidier and is a trap: it asks the terminal where the cursor is
+    // and waits for the reply, which some terminals never send.
+    *terminal = ratatui::init();
+    suspended.store(false, Ordering::SeqCst);
+
+    model.status = match status {
+        Ok(exit) if exit.success() => String::new(),
+        Ok(exit) => format!("{} exited with {exit}", editor.program),
+        Err(e) => format!("Could not run {}: {e}", editor.program),
+    };
+}
+
 /// Turns crossterm events into messages until the channel closes.
-fn spawn_input_thread(tx: std::sync::mpsc::Sender<Msg>) {
+fn spawn_input_thread(tx: std::sync::mpsc::Sender<Msg>, suspended: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         loop {
+            if suspended.load(Ordering::SeqCst) {
+                // The editor is reading this terminal; stay out of its way.
+                std::thread::sleep(INPUT_POLL);
+                continue;
+            }
+
             match crossterm::event::poll(INPUT_POLL) {
                 Ok(false) => continue,
                 Err(_) => return,

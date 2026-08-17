@@ -7,6 +7,16 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+/// Whether to print the "is on the run..." banner when a description has to be fetched.
+///
+/// The TUI passes [`Announce::Silent`]: it owns the screen, and a `println!` would land on top of
+/// the alternate screen instead of scrolling past.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Announce {
+    Print,
+    Silent,
+}
+
 /// Make sure the solution file for `id` exists, and return its path.
 ///
 /// Creates the file (and, when `code.test` is on, the test-case file) on first use, filled from the
@@ -15,7 +25,12 @@ use std::path::Path;
 ///
 /// `lang` overrides the configured language *and persists that choice*, matching what
 /// `leetctl edit --lang` has always done.
-pub async fn ensure_code_file(cache: &Cache, id: i32, lang: Option<String>) -> Result<String> {
+pub async fn ensure_code_file(
+    cache: &Cache,
+    id: i32,
+    lang: Option<String>,
+    announce: Announce,
+) -> Result<String> {
     let problem = cache.get_problem(id)?;
     let mut conf = cache.to_owned().0.conf;
 
@@ -33,7 +48,9 @@ pub async fn ensure_code_file(cache: &Cache, id: i32, lang: Option<String>) -> R
 
     let mut question: std::result::Result<Question, _> = serde_json::from_str(&problem.desc);
     if question.is_err() {
-        println!("{}", problem.banner());
+        if announce == Announce::Print {
+            println!("{}", problem.banner());
+        }
         question = Ok(cache.get_question(id).await?);
     }
 
