@@ -27,7 +27,7 @@ constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 | `g` `g`, `G` | list, detail | top / bottom |
 | `Ctrl-d` / `Ctrl-u` | list, detail | page down / up |
 | `Enter` | list | open the description |
-| `Esc` | detail, overlays | back |
+| `Esc` / `q` | description, help | back |
 | `/` | list | search prompt: space-separated tokens are ANDed, `!token` excludes |
 | `s` | list | set picker (`j`/`k`, `enter` applies, `x` clears the set, `esc` closes) |
 | `d` | list | cycle difficulty: all → easy → medium → hard |
@@ -40,6 +40,11 @@ constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 | `S` | detail | submit (asks first) |
 | `?` | anywhere | help |
 | `q` | list | quit |
+
+Descriptions are fetched once and kept for the session, so reopening a problem is instant. The
+daily challenge is looked up at startup to badge its row with ★, and `D` jumps to it — dropping the
+filters first if they hide it, because being sent to a row that is not on screen reads as the key
+having done nothing.
 
 Searching matches tokens as substrings of the id, name, slug, difficulty, and status together, so
 `easy !ac tree` reads as "easy tree problems I have not solved". It is substring-only on purpose:
@@ -129,7 +134,7 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
 | 2 | Shared filter / stats engine; extract the code-file scaffold | Merged |
 | 3 | `leetctl tui`, event loop, problem table | Merged |
 | 4 | Filtering: text, set, difficulty, tag | Merged |
-| 5 | Detail view, help, daily challenge | Pending |
+| 5 | Detail view, help, daily challenge | Merged |
 | 6 | Edit, test, submit | Pending |
 
 Phases 1 and 2 are behavior-preserving refactors of the existing commands: `leetctl list`, `pick`,

@@ -1,4 +1,5 @@
 //! Rendering. Difficulty colors follow the CLI's green / yellow / red.
+mod detail;
 mod list;
 mod overlays;
 
@@ -8,7 +9,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::helper::Difficulty;
-use crate::tui::Model;
+use crate::tui::{Mode, Model};
 
 pub(crate) fn draw(m: &Model, f: &mut Frame) {
     if m.loading {
@@ -16,9 +17,15 @@ pub(crate) fn draw(m: &Model, f: &mut Frame) {
         return;
     }
 
-    list::draw_list(m, f);
-    // The picker floats over the table it is narrowing.
-    overlays::draw_set_picker(m, f);
+    match m.mode {
+        Mode::Help => detail::draw_help(m, f),
+        Mode::Detail => detail::draw_detail(m, f),
+        Mode::List => {
+            list::draw_list(m, f);
+            // The picker floats over the table it is narrowing.
+            overlays::draw_set_picker(m, f);
+        }
+    }
 }
 
 fn draw_loading(m: &Model, f: &mut Frame) {
@@ -117,7 +124,7 @@ pub(crate) mod test_util {
 #[cfg(test)]
 mod tests {
     use super::test_util::{listed_model, render};
-    use crate::tui::test_model;
+    use crate::tui::{Mode, test_model};
 
     #[test]
     fn the_loading_screen_names_the_tool_and_what_it_is_doing() {
@@ -285,10 +292,103 @@ mod tests {
     }
 
     #[test]
+    fn the_description_page_titles_the_problem_and_shows_its_text() {
+        let mut m = listed_model();
+        m.descriptions
+            .insert(1, "Given an array of integers nums, return indices.".into());
+        m.open_detail();
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("[1] Two Sum"), "{screen}");
+        assert!(screen.contains("Easy"), "{screen}");
+        assert!(screen.contains("Given an array"), "{screen}");
+        assert!(screen.contains("esc:back"), "{screen}");
+    }
+
+    #[test]
+    fn a_description_still_in_flight_says_so() {
+        let mut m = listed_model();
+        m.open_detail();
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("Fetching"), "{screen}");
+    }
+
+    #[test]
+    fn a_description_that_failed_shows_the_error_on_the_footer() {
+        let mut m = listed_model();
+        m.open_detail();
+        m.status = "Your leetcode account lacks a premium subscription".into();
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("premium"), "{screen}");
+    }
+
+    #[test]
+    fn scrolling_the_description_moves_the_window() {
+        let mut m = listed_model();
+        let text = (0..60)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        m.descriptions.insert(1, text);
+        m.open_detail();
+        m.detail_scroll = 30;
+
+        let screen = render(&m, 80, 20);
+
+        assert!(screen.contains("line30"), "{screen}");
+        assert!(
+            !screen.contains("line29"),
+            "scrolled-past text is gone:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn the_help_page_lists_the_keys_by_screen() {
+        let mut m = listed_model();
+        m.open_help();
+
+        let screen = render(&m, 90, 24);
+
+        assert!(screen.contains("keys"), "title missing:\n{screen}");
+        assert!(screen.contains("ctrl-d / ctrl-u"), "{screen}");
+        assert!(screen.contains("daily challenge"), "{screen}");
+        assert!(screen.contains("!token excludes"), "{screen}");
+    }
+
+    #[test]
+    fn the_daily_problem_is_badged_in_the_table_and_in_its_description() {
+        let mut m = listed_model();
+        m.daily_fid = Some(4);
+
+        let table = render(&m, 80, 20);
+        assert!(table.contains('★'), "table badge missing:\n{table}");
+
+        m.cursor = 1;
+        m.descriptions
+            .insert(4, "Median of two sorted arrays.".into());
+        m.open_detail();
+        let page = render(&m, 80, 20);
+        assert!(
+            page.contains("★ daily"),
+            "description badge missing:\n{page}"
+        );
+    }
+
+    #[test]
     fn a_terminal_too_small_to_lay_out_renders_without_panicking() {
-        for (w, h) in [(20, 10), (10, 4), (4, 1), (1, 1)] {
-            let screen = render(&listed_model(), w, h);
-            assert_eq!(screen.lines().count(), h as usize);
+        for mode in [Mode::List, Mode::Detail, Mode::Help] {
+            for (w, h) in [(20, 10), (10, 4), (4, 1), (1, 1)] {
+                let mut m = listed_model();
+                m.mode = mode;
+                m.detail_fid = Some(1);
+                let screen = render(&m, w, h);
+                assert_eq!(screen.lines().count(), h as usize, "{mode:?} at {w}x{h}");
+            }
         }
     }
 }

@@ -46,6 +46,9 @@ pub(super) fn update(m: &mut Model, k: KeyEvent) {
         KeyCode::Char('s') => m.open_picker(),
         KeyCode::Char('d') => m.cycle_difficulty(),
         KeyCode::Char('u') => m.toggle_unsolved(),
+        KeyCode::Enter => m.open_detail(),
+        KeyCode::Char('D') => m.request_daily(),
+        KeyCode::Char('?') => m.open_help(),
         KeyCode::Esc if m.has_filters() => m.clear_filters(),
         _ => {}
     }

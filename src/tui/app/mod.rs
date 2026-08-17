@@ -1,7 +1,9 @@
 //! TUI state: the message type, the model, and the update dispatch
+mod detail;
 mod list;
 mod run;
 
+use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 
 use crossterm::event::KeyEvent;
@@ -19,6 +21,9 @@ pub use run::run;
 /// lays the same rows out — they have to agree or the cursor scrolls to the wrong place.
 pub(crate) const ROWS_MARGIN: u16 = 5;
 
+/// Columns the description pane loses to the panel border and its one-column padding on each side.
+const DETAIL_MARGIN: u16 = 4;
+
 /// Everything that can change the model.
 ///
 /// Loads carry their results rather than being awaited: the UI thread never blocks on I/O.
@@ -32,6 +37,22 @@ pub enum Msg {
         generation: u64,
         res: Result<Vec<String>>,
     },
+    /// A problem description, already rendered to plain text.
+    QuestionLoaded {
+        generation: u64,
+        fid: i32,
+        res: Result<String>,
+    },
+    /// Today's challenge, by frontend id.
+    DailyLoaded(Result<i32>),
+}
+
+/// Which screen is up. Prompts and the set picker are overlays on the list, not modes of their own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Mode {
+    List,
+    Detail,
+    Help,
 }
 
 /// Which one-line prompt is open, if any.
@@ -85,6 +106,30 @@ impl Backend {
         });
     }
 
+    fn load_question(&self, fid: i32, generation: u64) {
+        let cache = self.cache.clone();
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            let res = cache
+                .get_question(fid)
+                .await
+                .map(|question| question.desc());
+            let _ = tx.send(Msg::QuestionLoaded {
+                generation,
+                fid,
+                res,
+            });
+        });
+    }
+
+    fn load_daily(&self) {
+        let cache = self.cache.clone();
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            let _ = tx.send(Msg::DailyLoaded(cache.get_daily_problem_id().await));
+        });
+    }
+
     fn load_tag_ids(&self, tag: String, generation: u64) {
         let cache = self.cache.clone();
         let tx = self.tx.clone();
@@ -118,6 +163,18 @@ pub struct Model {
     pub(crate) sets: Vec<SetChoice>,
     /// Identifies the newest tag request, so slower older ones can be discarded.
     tag_gen: u64,
+    pub(crate) mode: Mode,
+    /// Which problem the detail page is showing.
+    pub(crate) detail_fid: Option<i32>,
+    pub(crate) detail_scroll: usize,
+    /// Descriptions already fetched, keyed by frontend id. Reopening a problem is instant.
+    pub(crate) descriptions: HashMap<i32, String>,
+    /// Identifies the newest description request.
+    desc_gen: u64,
+    /// Today's challenge, once LeetCode has told us. Badges its row in the table.
+    pub(crate) daily_fid: Option<i32>,
+    /// `D` was pressed before the answer arrived, so jump as soon as it does.
+    daily_jump_pending: bool,
     pub(crate) cursor: usize,
     /// First visible row, moved only to keep the cursor on screen.
     pub(crate) row_offset: usize,
@@ -149,6 +206,13 @@ impl Model {
             picker: None,
             sets: Vec::new(),
             tag_gen: 0,
+            mode: Mode::List,
+            detail_fid: None,
+            detail_scroll: 0,
+            descriptions: HashMap::new(),
+            desc_gen: 0,
+            daily_fid: None,
+            daily_jump_pending: false,
             cursor: 0,
             row_offset: 0,
             goto_pending: false,
@@ -165,12 +229,18 @@ impl Model {
     fn init(&mut self) {
         if let Some(backend) = &self.backend {
             backend.load_problems();
+            // Fetched up front so the table can badge today's problem without being asked.
+            backend.load_daily();
         }
     }
 
     pub(crate) fn handle(&mut self, msg: Msg) {
         match msg {
-            Msg::Key(k) => list::update(self, k),
+            Msg::Key(k) => match self.mode {
+                Mode::List => list::update(self, k),
+                Mode::Detail => detail::update(self, k),
+                Mode::Help => detail::update_help(self, k),
+            },
             Msg::Resize(w, h) => {
                 self.width = w;
                 self.height = h;
@@ -185,6 +255,35 @@ impl Model {
                     Err(e) => self.status = e.to_string(),
                 }
             }
+            Msg::QuestionLoaded {
+                generation,
+                fid,
+                res,
+            } => {
+                if generation != self.desc_gen {
+                    return;
+                }
+                match res {
+                    Ok(desc) => {
+                        self.descriptions.insert(fid, desc);
+                        self.status.clear();
+                    }
+                    Err(e) => self.status = e.to_string(),
+                }
+            }
+            Msg::DailyLoaded(res) => match res {
+                Ok(fid) => {
+                    self.daily_fid = Some(fid);
+                    if std::mem::take(&mut self.daily_jump_pending) {
+                        self.open_daily();
+                    }
+                }
+                Err(e) => {
+                    if std::mem::take(&mut self.daily_jump_pending) {
+                        self.status = e.to_string();
+                    }
+                }
+            },
             Msg::TagIdsLoaded { generation, res } => {
                 if generation != self.tag_gen {
                     return;
@@ -312,6 +411,93 @@ impl Model {
         self.apply_filters();
     }
 
+    pub(crate) fn selected(&self) -> Option<&Problem> {
+        self.filtered.get(self.cursor)
+    }
+
+    /// Opens the description of the problem under the cursor, fetching it unless it is already in
+    /// hand. Locked and non-algorithm problems fail in the fetch, and say so on the status line.
+    pub(crate) fn open_detail(&mut self) {
+        let Some(problem) = self.selected() else {
+            return;
+        };
+        let fid = problem.fid;
+
+        self.mode = Mode::Detail;
+        self.detail_fid = Some(fid);
+        self.detail_scroll = 0;
+        if self.descriptions.contains_key(&fid) {
+            return;
+        }
+
+        self.desc_gen += 1;
+        self.status = format!("Fetching problem {fid}…");
+        if let Some(backend) = &self.backend {
+            backend.load_question(fid, self.desc_gen);
+        }
+    }
+
+    /// The description on screen, if it has arrived.
+    pub(crate) fn detail_text(&self) -> Option<&str> {
+        self.detail_fid
+            .and_then(|fid| self.descriptions.get(&fid))
+            .map(String::as_str)
+    }
+
+    pub(crate) fn detail_problem(&self) -> Option<&Problem> {
+        let fid = self.detail_fid?;
+
+        self.filtered
+            .iter()
+            .chain(self.all.iter())
+            .find(|p| p.fid == fid)
+    }
+
+    pub(crate) fn back_to_list(&mut self) {
+        self.mode = Mode::List;
+    }
+
+    pub(crate) fn open_help(&mut self) {
+        self.mode = Mode::Help;
+    }
+
+    /// Moves the cursor to today's challenge and opens it, asking LeetCode which problem that is if
+    /// the answer has not arrived yet.
+    pub(crate) fn request_daily(&mut self) {
+        match self.daily_fid {
+            Some(_) => self.open_daily(),
+            None => {
+                self.daily_jump_pending = true;
+                self.status = "Looking up today's challenge…".to_string();
+                if let Some(backend) = &self.backend {
+                    backend.load_daily();
+                }
+            }
+        }
+    }
+
+    /// Selects the daily problem, dropping the filters that hide it — being sent to a filtered-out
+    /// row would look like the key did nothing.
+    fn open_daily(&mut self) {
+        let Some(fid) = self.daily_fid else { return };
+
+        if !self.filtered.iter().any(|p| p.fid == fid) {
+            if !self.all.iter().any(|p| p.fid == fid) {
+                self.status = format!(
+                    "Today's challenge is problem {fid}, which is not in the cache yet — \
+                     run `leetctl data -u`."
+                );
+                return;
+            }
+            self.clear_filters();
+        }
+
+        if let Some(i) = self.filtered.iter().position(|p| p.fid == fid) {
+            self.cursor = i;
+            self.open_detail();
+        }
+    }
+
     /// Whether anything is narrowing the list, which is what makes `esc` worth offering.
     pub(crate) fn has_filters(&self) -> bool {
         self.filters.set.is_some()
@@ -325,6 +511,21 @@ impl Model {
 
     pub(crate) fn stats(&self) -> ProgressStats {
         progress(&self.filtered)
+    }
+
+    /// The description, wrapped to the pane it is drawn in. The view wraps the same way, so a
+    /// scroll offset means the same thing in both.
+    pub(crate) fn detail_lines(&self) -> Vec<String> {
+        let width = self.width.saturating_sub(DETAIL_MARGIN) as usize;
+
+        self.detail_text()
+            .map(|text| crate::tui::wrap::wrap(text, width))
+            .unwrap_or_default()
+    }
+
+    /// The furthest the description can scroll: enough to bring its last line into view.
+    pub(crate) fn detail_last_scroll(&self) -> usize {
+        self.detail_lines().len().saturating_sub(self.rows_height())
     }
 
     /// How many problem rows fit on screen.
@@ -378,6 +579,13 @@ pub(crate) fn test_model() -> Model {
         picker: None,
         sets: Vec::new(),
         tag_gen: 0,
+        mode: Mode::List,
+        detail_fid: None,
+        detail_scroll: 0,
+        descriptions: HashMap::new(),
+        desc_gen: 0,
+        daily_fid: None,
+        daily_jump_pending: false,
         cursor: 0,
         row_offset: 0,
         goto_pending: false,

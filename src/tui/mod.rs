@@ -8,10 +8,11 @@ mod app;
 mod input;
 mod search;
 mod view;
+mod wrap;
 
 pub use app::{Options, run};
 
-pub(crate) use app::{Model, Prompt, PromptKind, ROWS_MARGIN, SetChoice};
+pub(crate) use app::{Mode, Model, Prompt, PromptKind, ROWS_MARGIN, SetChoice};
 
 #[cfg(test)]
 pub(crate) use app::test_model;

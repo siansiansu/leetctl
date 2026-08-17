@@ -24,8 +24,8 @@ const LIST_HINTS: [(&str, &str); 7] = [
     ("s", "set"),
     ("d", "difficulty"),
     ("u", "unsolved"),
-    ("t", "tag"),
-    ("q", "quit"),
+    ("enter", "open"),
+    ("?", "help"),
 ];
 
 /// With any filter on, `esc` is the way back out, so it earns a slot.
@@ -36,7 +36,7 @@ const LIST_HINTS_FILTERED: [(&str, &str); 7] = [
     ("d", "difficulty"),
     ("u", "unsolved"),
     ("esc", "clear filters"),
-    ("q", "quit"),
+    ("?", "help"),
 ];
 
 /// Shown on the footer while a prompt is open, in place of the hints.
@@ -187,7 +187,7 @@ fn draw_panel(m: &Model, f: &mut Frame, area: Rect) {
         .enumerate()
         .skip(m.row_offset)
         .take(inner.height as usize)
-        .map(|(i, p)| problem_row(p, name_width, i == m.cursor))
+        .map(|(i, p)| problem_row(p, name_width, i == m.cursor, m.daily_fid == Some(p.fid)))
         .collect();
 
     f.render_widget(Paragraph::new(rows), inner);
@@ -195,16 +195,18 @@ fn draw_panel(m: &Model, f: &mut Frame, area: Rect) {
 
 /// One table row. Built from the problem's fields rather than its `Display` impl, which writes ANSI
 /// escapes that ratatui would print literally.
-fn problem_row(p: &Problem, name_width: u16, selected: bool) -> Line<'static> {
+fn problem_row(p: &Problem, name_width: u16, selected: bool, is_daily: bool) -> Line<'static> {
     let status = match p.status.as_str() {
         "ac" => Span::styled(" ✔", Style::new().fg(Color::Green)),
         "notac" => Span::styled(" ✘", Style::new().fg(Color::Red)),
         _ => Span::raw("  "),
     };
-    let lock = if p.locked {
-        Span::raw("🔒")
-    } else {
-        Span::raw("  ")
+    // Today's challenge outranks the lock in the same column: it is the row you came for, and a
+    // premium-locked daily still shows as locked in the description.
+    let lock = match (is_daily, p.locked) {
+        (true, _) => Span::styled("★ ", Style::new().fg(Color::Yellow)),
+        (false, true) => Span::raw("🔒"),
+        (false, false) => Span::raw("  "),
     };
 
     let mut spans = vec![
