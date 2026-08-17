@@ -222,12 +222,18 @@ mod tests {
         serde_json::from_str(json).expect("fixture should deserialize")
     }
 
-    /// A submission LeetCode accepted. `result_type` is `#[serde(skip)]` and defaults to `Submit`.
+    /// A submission LeetCode accepted, captured from a real response (the same payload
+    /// `tests/de.rs` decodes). `result_type` is `#[serde(skip)]` and defaults to `Submit`.
     fn accepted() -> crate::cache::models::VerifyResult {
         verify_result(
-            r#"{"state":"SUCCESS","status_code":10,"status_msg":"Accepted",
-                "status_runtime":"4 ms","status_memory":"2.1 MB",
-                "compare_result":"111","question_id":"1","pretty_lang":"Rust"}"#,
+            r#"{"status_code": 10, "lang": "rust", "run_success": true, "status_runtime": "0 ms", "memory": 2300000, "question_id": "1", "elapsed_time": 0, "compare_result": "11111111111111111111111111111", "code_output": "", "std_output": "", "last_testcase": "", "task_finish_time": 1578193674018, "total_correct": 29, "total_testcases": 29, "runtime_percentile": 100, "status_memory": "2.3 MB", "memory_percentile": 100, "pretty_lang": "Rust", "submission_id": "291285717", "status_msg": "Accepted", "state": "SUCCESS"}"#,
+        )
+    }
+
+    /// A real submission that failed one of the 29 cases.
+    fn rejected() -> crate::cache::models::VerifyResult {
+        verify_result(
+            r#"{"status_code": 11, "lang": "rust", "run_success": true, "status_runtime": "4 ms", "memory": 2716000, "question_id": "1", "elapsed_time": 0, "compare_result": "11111111111111111111111111011", "code_output": "", "std_output": "", "last_testcase": "[1, 2, 3]", "task_finish_time": 1578590021187, "total_correct": 28, "total_testcases": 29, "runtime_percentile": 76.9231, "status_memory": "2.7 MB", "memory_percentile": 100, "pretty_lang": "Rust", "submission_id": "292701790", "status_msg": "Failed", "state": "SUCCESS"}"#,
         )
     }
 
@@ -308,10 +314,31 @@ mod tests {
 
         let outcome = m.outcome.as_ref().expect("a result is on screen");
         assert!(outcome.accepted);
-        assert!(outcome.text.contains("Success"));
+        // trace: the real payload reports 0 ms at the 100th percentile against 2.3 MB.
+        assert!(outcome.text.contains("Success"), "{}", outcome.text);
+        assert!(outcome.text.contains("0 ms"), "{}", outcome.text);
+        assert!(outcome.text.contains("100%"), "{}", outcome.text);
+        assert!(outcome.text.contains("2.3 MB"), "{}", outcome.text);
         assert_eq!(m.all[0].status, "ac", "the cached row is stale otherwise");
         assert_eq!(m.filtered[0].status, "ac");
         assert!(m.exec.is_none(), "the spinner stops");
+    }
+
+    #[test]
+    fn a_rejected_submission_reports_the_failing_case_and_leaves_the_row_alone() {
+        let mut m = detail_model(3);
+        update(&mut m, key(KeyCode::Char('S')));
+        update(&mut m, key(KeyCode::Char('y')));
+
+        m.handle(exec_done(1, 1, Run::Submit, rejected()));
+
+        let outcome = m.outcome.as_ref().expect("a result is on screen");
+        assert!(!outcome.accepted);
+        // trace: 28 of 29 cases passed, and the payload names the case that did not.
+        assert!(outcome.text.contains("28"), "{}", outcome.text);
+        assert!(outcome.text.contains("29"), "{}", outcome.text);
+        assert!(outcome.text.contains("[1, 2, 3]"), "{}", outcome.text);
+        assert_eq!(m.all[0].status, "", "an unsolved problem stays unsolved");
     }
 
     #[test]

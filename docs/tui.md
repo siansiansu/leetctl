@@ -116,7 +116,9 @@ TUI code is written:
 - `conn()` panics when the database cannot be opened. It returns a `Result`.
 
 Two invariants follow, and future work should keep them: **the cache layer does not print**, and
-**`Display` impls have no side effects**.
+**`Display` impls have no side effects** — which includes not panicking. Formatting a submission that
+failed some of its cases used to index into an output list LeetCode leaves empty, so `leetctl exec`
+panicked and the TUI would have died mid-draw.
 
 `leetctl tui` also forces `colored` off process-wide, so any string it borrows from a `Display` impl
 arrives free of ANSI escapes, and initializes the logger at `off` unless `--debug` is set — a stray

@@ -117,7 +117,10 @@ fn write_code_file(
 
     if !has_stub {
         std::fs::remove_file(path)?;
-        if test_flag {
+        // The test-case file is only written next to a stub, so on this path it is usually absent.
+        // Removing it unconditionally failed with "No such file or directory", and that io error
+        // reached the user instead of the unsupported-language message below.
+        if test_flag && Path::new(&test_path).exists() {
             std::fs::remove_file(&test_path)?;
         }
 
