@@ -1,0 +1,86 @@
+//! Code in config
+use serde::{Deserialize, Serialize};
+
+const PICK_DEFAULT: &str = "${fid}.${slug}";
+fn default_pick() -> String {
+    PICK_DEFAULT.into()
+}
+
+fn is_default_pick(t: &str) -> bool {
+    t == PICK_DEFAULT
+}
+
+fn is_default_string(t: &str) -> bool {
+    t.is_empty()
+}
+fn is_default_bool(t: &bool) -> bool {
+    !t
+}
+
+fn default_editor() -> String {
+    "vim".into()
+}
+
+/// Code config
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Code {
+    #[serde(default = "default_editor")]
+    pub editor: String,
+    #[serde(rename(serialize = "editor-args"), alias = "editor-args", default)]
+    pub editor_args: Option<Vec<String>>,
+    #[serde(rename(serialize = "editor-envs"), alias = "editor-envs", default)]
+    pub editor_envs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "is_default_bool")]
+    pub edit_code_marker: bool,
+    #[serde(default, skip_serializing_if = "is_default_string")]
+    pub start_marker: String,
+    #[serde(default, skip_serializing_if = "is_default_string")]
+    pub end_marker: String,
+    #[serde(rename(serialize = "inject_before"), alias = "inject_before", default)]
+    pub inject_before: Option<Vec<String>>,
+    #[serde(rename(serialize = "inject_after"), alias = "inject_after", default)]
+    pub inject_after: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "is_default_bool")]
+    pub comment_problem_desc: bool,
+    #[serde(default, skip_serializing_if = "is_default_string")]
+    pub comment_leading: String,
+    #[serde(default, skip_serializing_if = "is_default_bool")]
+    pub test: bool,
+    pub lang: String,
+    #[serde(default = "default_pick", skip_serializing_if = "is_default_pick")]
+    pub pick: String,
+}
+
+impl Code {
+    /// `$VISUAL` and `$EDITOR` take precedence over the configured editor.
+    pub fn with_env_override(mut self) -> Self {
+        for key in ["EDITOR", "VISUAL"] {
+            if let Ok(editor) = std::env::var(key)
+                && !editor.is_empty()
+            {
+                self.editor = editor;
+            }
+        }
+        self
+    }
+}
+
+impl Default for Code {
+    fn default() -> Self {
+        Self {
+            editor: default_editor(),
+            editor_args: None,
+            editor_envs: None,
+            edit_code_marker: false,
+            start_marker: "".into(),
+            end_marker: "".into(),
+            inject_before: None,
+            inject_after: None,
+            comment_problem_desc: false,
+            comment_leading: "".into(),
+            test: true,
+            lang: "rust".into(),
+            pick: "${fid}.${slug}".into(),
+        }
+    }
+}

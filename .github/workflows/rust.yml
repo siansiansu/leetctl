@@ -1,0 +1,35 @@
+name: leetctl
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macOS-latest, ubuntu-latest]
+    steps:
+      - name: Checkout the source code
+        uses: actions/checkout@v7
+      - name: Install Toolchain
+        run: rustup update stable && rustup default stable
+      - uses: taiki-e/install-action@sccache
+      - uses: taiki-e/install-action@nextest
+      - name: Run tests
+        run: cargo nextest run --release --all-features
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the source code
+        uses: actions/checkout@v7
+      - name: Install Toolchain
+        run: rustup update stable && rustup default stable
+      - uses: taiki-e/install-action@sccache
+      - name: Run format check
+        run: cargo fmt --check
+      - name: Run clippy
+        run: cargo clippy --all-features -- -D warnings
