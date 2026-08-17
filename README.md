@@ -7,7 +7,7 @@
 LeetCode from the command line. Pick a problem, solve it in your editor, test and submit — without
 opening a browser.
 
-Beyond the usual: **ten curated problem sets are compiled into the binary**, so you can draw a
+Beyond the usual: **eleven curated problem sets are compiled into the binary**, so you can draw a
 random problem from Blind 75, NeetCode 150, or a company list, narrowed by topic and difficulty:
 
 ```sh
@@ -89,13 +89,14 @@ leetctl sets              # slug, name, size
 leetctl sets --sources    # plus where each came from and how old the data is
 ```
 
-| Slug | Problems | | Slug | Problems |
-| --- | ---: | --- | --- | ---: |
-| `blind75` | 75 | | `leetcode-75` | 75 |
-| `neetcode150` | 150 | | `google` | 488 |
-| `neetcode-all` | 450 | | `facebook` | 371 |
-| `top-interview-150` | 150 | | `amazon` | 592 |
-| `top-100-liked` | 100 | | `microsoft` | 363 |
+| Slug | Problems | Slug | Problems |
+| --- | ---: | --- | ---: |
+| `blind75` | 75 | `leetcode-75` | 75 |
+| `neetcode150` | 150 | `google` | 488 |
+| `neetcode250` | 250 | `facebook` | 371 |
+| `neetcode-all` | 450 | `amazon` | 592 |
+| `top-interview-150` | 150 | `microsoft` | 363 |
+| `top-100-liked` | 100 | | |
 
 The company sets are a community-collected **2022** snapshot, not live LeetCode company tags (those
 are Premium-gated) — treat them accordingly. Full provenance, licensing, and how to regenerate or
@@ -136,8 +137,10 @@ where everything except the problem sets and the filtered `pick` comes from. It 
 `~/.leetcode` config and cache layout, so an existing leetcode-cli setup carries over unchanged.
 
 Problem set data comes from [neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode) (MIT),
+[neetcode.io](https://neetcode.io/practice) for the NeetCode 250 membership,
 [hxu296/leetcode-company-wise-problems-2022](https://github.com/hxu296/leetcode-company-wise-problems-2022)
-(MIT), and LeetCode's public study-plan endpoints.
+(MIT), and LeetCode's public study-plan endpoints. Only problem identifiers are stored, never
+problem text.
 
 ## License
 

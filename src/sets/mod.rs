@@ -16,6 +16,10 @@ const REGISTRY: &[(&str, &str)] = &[
         include_str!("../../data/sets/neetcode150.toml"),
     ),
     (
+        "neetcode250",
+        include_str!("../../data/sets/neetcode250.toml"),
+    ),
+    (
         "neetcode-all",
         include_str!("../../data/sets/neetcode-all.toml"),
     ),
@@ -101,6 +105,7 @@ mod tests {
     const EXPECTED_COUNTS: &[(&str, usize)] = &[
         ("blind75", 75),
         ("neetcode150", 150),
+        ("neetcode250", 250),
         ("neetcode-all", 450),
         ("top-interview-150", 150),
         ("top-100-liked", 100),
@@ -183,13 +188,21 @@ mod tests {
         assert!(matches!(get("nope"), Err(Error::UnknownSet(_))));
     }
 
+    /// The NeetCode lists are published as nested tiers, and `neetcode250` is generated from the
+    /// website bundle while the other two come from NeetCode's MIT data file — so this also
+    /// guards the two sources against drifting apart.
     #[test]
-    fn blind75_is_a_subset_of_neetcode150() {
+    fn the_neetcode_lists_nest() {
         let blind = get("blind75").unwrap().fids();
-        let neetcode = get("neetcode150").unwrap().fids();
+        let hundred_fifty = get("neetcode150").unwrap().fids();
+        let two_fifty = get("neetcode250").unwrap().fids();
         assert!(
-            blind.is_subset(&neetcode),
+            blind.is_subset(&hundred_fifty),
             "NeetCode 150 is supposed to extend Blind 75"
+        );
+        assert!(
+            hundred_fifty.is_subset(&two_fifty),
+            "NeetCode 250 is supposed to extend NeetCode 150"
         );
     }
 }

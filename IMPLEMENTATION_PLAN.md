@@ -37,6 +37,7 @@ Fork of [clearloop/leetcode-cli](https://github.com/clearloop/leetcode-cli) (MIT
 | --- | --- | --- | --- | --- |
 | `blind75` | Blind 75 | 75 | `neetcode-gh/leetcode` → `.problemSiteData.json` | MIT |
 | `neetcode150` | NeetCode 150 | 150 | same | MIT |
+| `neetcode250` | NeetCode 250 | 250 | neetcode.io site bundle | NeetCode, identifiers only |
 | `neetcode-all` | NeetCode All | 450 | same (every entry) | MIT |
 | `top-interview-150` | LeetCode Top Interview 150 | 150 | LeetCode GraphQL `studyPlanV2Detail` | LeetCode |
 | `top-100-liked` | LeetCode Top 100 Liked | 100 | same | LeetCode |
@@ -51,10 +52,12 @@ problems can never ship. `EXPECTED_COUNTS` pins every set's size in both the gen
 tests. `RENAMED_SLUGS` carries the seven problems LeetCode renamed since 2022, each verified against
 the live index by frontend id.
 
-**NeetCode 250 is not obtainable.** `.problemSiteData.json` is NeetCode's own data file and carries
-only `blind75` and `neetcode150` membership flags across its 450 entries — there is no 250 flag and
-no public API exposing one (`neetcode.io/api/problems` serves the SPA shell, not JSON). Shipping
-`neetcode-all` (450) in its place; noted for the user rather than silently substituted.
+**NeetCode 250 — initially reported as unobtainable; that was wrong.** `.problemSiteData.json`
+carries only `blind75` and `neetcode150` flags across its 450 entries, and `neetcode.io/api/problems`
+serves the SPA shell, so the first pass concluded no public source existed. It only checked the
+GitHub data file and two endpoints — not the site's own JS bundle, which contains the full problem
+table with a `neetcode250` flag on exactly 250 entries. Now shipped; see `docs/sets.md` for how it
+is extracted and how the two NeetCode sources are checked against each other.
 
 **Company data is a 2022-vintage community-scraped snapshot of company tags**, not live LeetCode
 company tags (those are Premium-gated), and not a ranked frequency list — upstream's occurrence

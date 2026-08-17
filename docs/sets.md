@@ -1,6 +1,6 @@
 # Problem sets
 
-`leetctl` ships ten curated problem lists. They are plain TOML under [`data/sets/`](../data/sets),
+`leetctl` ships eleven curated problem lists. They are plain TOML under [`data/sets/`](../data/sets),
 compiled into the binary, so filtering by one needs no network call and no LeetCode Premium
 subscription.
 
@@ -16,7 +16,8 @@ leetctl pick --set blind75 --difficulty medium  # random pick from a set
 | --- | --- | ---: | --- | --- |
 | `blind75` | Blind 75 | 75 | [neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode) | MIT |
 | `neetcode150` | NeetCode 150 | 150 | same | MIT |
-| `neetcode-all` | NeetCode All | 450 | same | MIT |
+| `neetcode250` | NeetCode 250 | 250 | [neetcode.io practice page](https://neetcode.io/practice/practice/neetcode250) | NeetCode, identifiers only |
+| `neetcode-all` | NeetCode All | 450 | [neetcode-gh/leetcode](https://github.com/neetcode-gh/leetcode) | MIT |
 | `top-interview-150` | Top Interview 150 | 150 | LeetCode study plan | LeetCode, identifiers only |
 | `top-100-liked` | Top 100 Liked | 100 | LeetCode study plan | LeetCode, identifiers only |
 | `leetcode-75` | LeetCode 75 | 75 | LeetCode study plan | LeetCode, identifiers only |
@@ -36,12 +37,31 @@ They are membership lists, not ranked frequency lists: the upstream data carries
 count, but this tool samples uniformly and sorts by problem id, so that ranking is not stored. Each
 file records `source_as_of = "2022"`, and `leetctl sets --sources` prints it.
 
-### There is no NeetCode 250
+### Where the NeetCode lists come from
 
-NeetCode's published data file, [`.problemSiteData.json`][ncdata], carries membership flags for
-`blind75` and `neetcode150` across its 450 entries — and nothing else. There is no 250 flag, and
-`neetcode.io/api/problems` serves the site's HTML shell rather than JSON, so no public source
-exposes that list. `neetcode-all` (all 450) ships in its place.
+`blind75`, `neetcode150`, and `neetcode-all` come from NeetCode's MIT-licensed data file,
+[`.problemSiteData.json`][ncdata] — 450 entries, flagged for those first two lists only.
+
+**`neetcode250` is not in that file.** It exists only in the neetcode.io site itself, whose problem
+table is compiled into an Angular bundle rather than served as JSON (`neetcode.io/api/problems`
+returns the site's HTML shell). The generator therefore scrapes the content-hashed bundle name off
+the practice page, fetches the bundle, and reads the problem object literals out of it:
+
+```js
+{problem:"Two Sum",pattern:"Arrays & Hashing",link:"two-sum/",...,neetcode250:!0,ncLink:"two-integer-sum/"}
+```
+
+`link` is the LeetCode slug and is what gets joined on. `ncLink` is NeetCode's own slug for the
+same problem, and is deliberately ignored — it is a different naming scheme entirely
+(`two-sum` vs `two-integer-sum`, `contains-duplicate` vs `duplicate-integer`).
+
+That bundle also carries 973 problems and its own `blind75` / `neetcode150` flags. The generator
+checks those against the MIT data file and **fails if the two sources disagree**, because mixing
+sources is only safe while they agree; today they match exactly. It also asserts the lists still
+nest (blind75 ⊆ neetcode150 ⊆ neetcode250), which `src/sets/mod.rs` re-checks at test time.
+
+`neetcode-all` stays at the MIT file's 450 — every problem NeetCode publishes a *solution* for. The
+site's own catalog is larger (973), so "All" here means "all solved", not "everything on the site".
 
 [ncdata]: https://github.com/neetcode-gh/leetcode/blob/main/.problemSiteData.json
 
@@ -55,6 +75,7 @@ fetched without a subscription. Counts, measured against a current problem cache
 | --- | ---: |
 | `blind75` | 6 |
 | `neetcode150` | 7 |
+| `neetcode250` | 7 |
 | `neetcode-all` | 9 |
 | `google` | 80 |
 | `top-interview-150`, `top-100-liked`, `leetcode-75` | 0 |
@@ -101,7 +122,7 @@ python3 scripts/gen_sets.py
 ```
 
 Standard library only, no virtualenv. It fetches every source, resolves each problem, rewrites all
-ten files, and prints a per-set count.
+eleven files, and prints a per-set count.
 
 **Generation fails rather than shipping a short set.** If any slug does not resolve, or a set does
 not come out at the size recorded in `EXPECTED_COUNTS`, the script exits non-zero and writes
@@ -131,7 +152,7 @@ out of the company sets.
    command line and in shell completions.
 5. Add a row to the table above.
 
-Sets must come from a source that permits redistribution. The three sources shipped today are
+Sets must come from a source that permits redistribution. The four sources shipped today are
 MIT-licensed or fetched from LeetCode's own public endpoints, and only problem identifiers are
 stored — never problem text. Each set records its source and licence, and `LICENSE` carries the
 upstream notices.

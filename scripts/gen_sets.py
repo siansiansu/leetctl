@@ -21,6 +21,7 @@ import datetime
 import io
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -31,6 +32,11 @@ LEETCODE_GRAPHQL = "https://leetcode.com/graphql"
 NEETCODE_SITE_DATA = (
     "https://raw.githubusercontent.com/neetcode-gh/leetcode/main/.problemSiteData.json"
 )
+# The MIT data file above covers only the 450 problems NeetCode publishes solutions for, and flags
+# just blind75 / neetcode150. The NeetCode 250 membership exists only in the website's own bundle,
+# so that is fetched too. Its script name is content-hashed, hence the page scrape for the name.
+NEETCODE_PRACTICE_PAGE = "https://neetcode.io/practice/practice/neetcode250"
+NEETCODE_BUNDLE_BASE = "https://neetcode.io/"
 COMPANY_CSV_BASE = (
     "https://raw.githubusercontent.com/hxu296/"
     "leetcode-company-wise-problems-2022/main/companies"
@@ -47,6 +53,11 @@ NEETCODE_SOURCE = {
     "source_license": "MIT",
     "source_as_of": None,  # tracks upstream; filled in with the generation date
 }
+NEETCODE_BUNDLE_SOURCE = {
+    "source_url": "https://neetcode.io/practice/practice/neetcode250",
+    "source_license": "NeetCode list membership; problem identifiers only",
+    "source_as_of": None,
+}
 LEETCODE_SOURCE = {
     "source_url": "https://leetcode.com/studyplan/",
     "source_license": "Proprietary (LeetCode); problem identifiers only",
@@ -60,8 +71,8 @@ COMPANY_SOURCE = {
     "source_as_of": "2022",
 }
 
-# NeetCode's own data file carries `blind75` and `neetcode150` membership flags across its 450
-# entries. There is no 250 flag and no public API exposing one, so NeetCode 250 is not shippable.
+# The MIT data file flags only blind75 and neetcode150 across its 450 entries; neetcode250 comes
+# from the website bundle instead (see neetcode_bundle_problems).
 NEETCODE_SETS = [
     ("blind75", "Blind 75", "The original Blind 75 list, as tracked by NeetCode.", "blind75"),
     (
@@ -73,7 +84,7 @@ NEETCODE_SETS = [
     (
         "neetcode-all",
         "NeetCode All",
-        "Every problem NeetCode tracks, grouped into 19 patterns.",
+        "Every problem NeetCode publishes a solution for, grouped into 19 patterns.",
         None,
     ),
 ]
@@ -124,6 +135,7 @@ COMPANIES = [
 EXPECTED_COUNTS = {
     "blind75": 75,
     "neetcode150": 150,
+    "neetcode250": 250,
     "neetcode-all": 450,
     "top-interview-150": 150,
     "top-100-liked": 100,
@@ -164,6 +176,88 @@ def slug_to_fid_index():
 def slug_from_problem_url(url):
     """https://leetcode.com/problems/two-sum/ -> two-sum"""
     return url.rstrip("/").rsplit("/", 1)[-1]
+
+
+def neetcode_bundle_problems():
+    """Every problem the NeetCode site knows about, with its list memberships.
+
+    The site is an Angular app whose problem table is compiled into the main bundle rather than
+    served as JSON, so this locates the content-hashed bundle from the practice page and reads the
+    object literals out of it. Each looks like:
+
+        {problem:"Two Sum",pattern:"Arrays & Hashing",link:"two-sum/",...,neetcode250:!0,...}
+
+    `link` is the LeetCode slug, which is what we join on. (`ncLink` is NeetCode's own slug for the
+    same problem — "two-integer-sum" for Two Sum — and is deliberately not used.)
+    """
+    page = fetch(NEETCODE_PRACTICE_PAGE).decode("utf-8", "replace")
+    match = re.search(r'src="(main\.[0-9a-f]+\.js)"', page)
+    if match is None:
+        raise GenerationError(
+            "could not find the main bundle on the NeetCode practice page; the site's markup "
+            "changed and neetcode_bundle_problems() needs updating"
+        )
+    bundle = fetch(NEETCODE_BUNDLE_BASE + match.group(1)).decode("utf-8", "replace")
+
+    problems = []
+    for start in (m.start() for m in re.finditer(r'\{problem:"', bundle)):
+        depth = 0
+        for index in range(start, min(start + 4000, len(bundle))):
+            if bundle[index] == "{":
+                depth += 1
+            elif bundle[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    problems.append(bundle[start:index + 1])
+                    break
+
+    def slug_of(literal):
+        found = re.search(r'\blink:"((?:[^"\\]|\\.)*)"', literal)
+        return found.group(1).strip("/") if found else None
+
+    parsed = []
+    for literal in problems:
+        slug = slug_of(literal)
+        if not slug:
+            continue
+        parsed.append({
+            "slug": slug,
+            "blind75": re.search(r"\bblind75:!0", literal) is not None,
+            "neetcode150": re.search(r"\bneetcode150:!0", literal) is not None,
+            "neetcode250": re.search(r"\bneetcode250:!0", literal) is not None,
+        })
+
+    if len(parsed) < 500:
+        raise GenerationError(
+            f"only {len(parsed)} problems parsed out of the NeetCode bundle, expected ~1000; "
+            f"the bundle's shape changed"
+        )
+    return parsed
+
+
+def check_neetcode_sources_agree(bundle, site_data):
+    """The 250 list comes from the website bundle while the other NeetCode sets come from the MIT
+    data file. Mixing two sources is only safe while they agree, so verify it rather than assume:
+    the sets they both describe must be identical, and each list must nest inside the next."""
+    for flag in ("blind75", "neetcode150"):
+        from_bundle = {p["slug"] for p in bundle if p[flag]}
+        from_file = {p["link"].strip("/") for p in site_data if p.get(flag)}
+        if from_bundle != from_file:
+            difference = ", ".join(sorted(from_bundle ^ from_file)[:10])
+            raise GenerationError(
+                f"NeetCode's website bundle and MIT data file disagree about `{flag}` "
+                f"({len(from_bundle)} vs {len(from_file)} problems; differing: {difference}). "
+                f"They have drifted apart — pick one source for all NeetCode sets."
+            )
+
+    blind = {p["slug"] for p in bundle if p["blind75"]}
+    hundred_fifty = {p["slug"] for p in bundle if p["neetcode150"]}
+    two_fifty = {p["slug"] for p in bundle if p["neetcode250"]}
+    if not (blind <= hundred_fifty <= two_fifty):
+        raise GenerationError(
+            "NeetCode's lists no longer nest (blind75 in neetcode150 in neetcode250); "
+            "the site changed how its lists relate"
+        )
 
 
 def neetcode_slugs(site_data, membership_flag):
@@ -289,6 +383,11 @@ def main():
     site_data = fetch_json(NEETCODE_SITE_DATA)
     print(f"  {len(site_data)} problems")
 
+    print("fetching NeetCode website bundle...")
+    bundle = neetcode_bundle_problems()
+    print(f"  {len(bundle)} problems")
+    check_neetcode_sources_agree(bundle, site_data)
+
     # Everything is fetched, validated and rendered first; only then is anything written, so a
     # failure in the tenth set cannot leave the first nine rewritten against a half-read source.
     rendered = []
@@ -298,6 +397,13 @@ def main():
                 slug, name, description, NEETCODE_SOURCE,
                 neetcode_slugs(site_data, flag), fid_index, sort_by_fid=False,
             ))
+
+        rendered.append(render_set(
+            "neetcode250", "NeetCode 250",
+            "NeetCode's 250-problem list, a superset of NeetCode 150.",
+            NEETCODE_BUNDLE_SOURCE,
+            [p["slug"] for p in bundle if p["neetcode250"]], fid_index, sort_by_fid=False,
+        ))
 
         for slug, name, description in LEETCODE_STUDY_PLANS:
             rendered.append(render_set(
