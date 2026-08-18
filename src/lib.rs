@@ -17,6 +17,7 @@ pub mod plugins;
 pub mod pym;
 pub mod scaffold;
 pub mod sets;
+pub mod srs;
 pub mod tui;
 
 // re-exports

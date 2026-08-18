@@ -1,6 +1,7 @@
 //! Save bad network\'s ass.
 pub mod models;
 pub mod parser;
+pub mod reviews;
 pub mod schemas;
 mod sql;
 use self::models::*;
@@ -421,6 +422,7 @@ impl Cache {
         let mut c = conn(conf.storage.cache()?)?;
         diesel::sql_query(CREATE_PROBLEMS_IF_NOT_EXISTS).execute(&mut c)?;
         diesel::sql_query(CREATE_TAGS_IF_NOT_EXISTS).execute(&mut c)?;
+        diesel::sql_query(CREATE_REVIEWS_IF_NOT_EXISTS).execute(&mut c)?;
 
         Ok(Cache(LeetCode::new()?))
     }

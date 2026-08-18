@@ -1,5 +1,5 @@
 //! Leetcode data models
-use super::schemas::{problems, tags};
+use super::schemas::{problems, reviews, tags};
 use crate::helper::HTML;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,60 @@ use unicode_width::UnicodeWidthStr;
 pub struct Tag {
     pub tag: String,
     pub refs: String,
+}
+
+/// One problem's place in the spaced-repetition deck.
+///
+/// Keyed on the frontend id — the number `leetctl pick <id>` takes — because that is the id every
+/// command and both frontends already speak. `VerifyResult::accepted_problem_id` returns the
+/// *internal* id instead, so the auto-grade path has to translate before it writes here.
+#[derive(Clone, Copy, Insertable, Queryable, Serialize, Debug, PartialEq)]
+#[diesel(table_name = reviews)]
+pub struct ReviewCard {
+    pub fid: i32,
+    pub ease: f32,
+    pub interval_days: i32,
+    pub repetitions: i32,
+    pub lapses: i32,
+    pub due_day: crate::srs::Day,
+    pub last_day: crate::srs::Day,
+}
+
+impl ReviewCard {
+    /// The card `schedule` describes, landing `interval_days` after `today`.
+    ///
+    /// A freshly enrolled problem passes `Schedule::default()`, whose interval is zero — it is due
+    /// the moment it enters the deck, which is the point of enrolling it.
+    pub fn new(fid: i32, schedule: crate::srs::Schedule, today: crate::srs::Day) -> Self {
+        ReviewCard {
+            fid,
+            ease: schedule.ease,
+            interval_days: schedule.interval_days,
+            repetitions: schedule.repetitions,
+            lapses: schedule.lapses,
+            due_day: today + schedule.interval_days,
+            last_day: today,
+        }
+    }
+
+    /// What the scheduler needs, without the calendar.
+    pub fn schedule(&self) -> crate::srs::Schedule {
+        crate::srs::Schedule {
+            ease: self.ease,
+            interval_days: self.interval_days,
+            repetitions: self.repetitions,
+            lapses: self.lapses,
+        }
+    }
+
+    pub fn is_due(&self, today: crate::srs::Day) -> bool {
+        self.due_day <= today
+    }
+
+    /// `today`, `in 4d`, `2d late`.
+    pub fn due_label(&self, today: crate::srs::Day) -> String {
+        crate::srs::due_label(self.due_day, today)
+    }
 }
 
 /// Problem model

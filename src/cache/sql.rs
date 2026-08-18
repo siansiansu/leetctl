@@ -21,4 +21,16 @@ pub static CREATE_TAGS_IF_NOT_EXISTS: &str = r#"
   )
 "#;
 
+pub static CREATE_REVIEWS_IF_NOT_EXISTS: &str = r#"
+  CREATE TABLE IF NOT EXISTS reviews (
+    fid INTEGER NOT NULL PRIMARY KEY,
+    ease FLOAT NOT NULL,
+    interval_days INTEGER NOT NULL,
+    repetitions INTEGER NOT NULL,
+    lapses INTEGER NOT NULL,
+    due_day INTEGER NOT NULL,
+    last_day INTEGER NOT NULL
+  )
+"#;
+
 // pub static DROP_PROBLEMS: &'static str = r#"DROP TABLE problems"#;
