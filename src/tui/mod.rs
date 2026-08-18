@@ -12,7 +12,7 @@ mod wrap;
 
 pub use app::{Options, run};
 
-pub(crate) use app::{Mode, Model, Prompt, PromptKind, ROWS_MARGIN, SetChoice};
+pub(crate) use app::{LIST_ROWS_MARGIN, Mode, Model, Prompt, PromptKind, SetChoice};
 
 #[cfg(test)]
 pub(crate) use app::{ExecOutcome, test_model};

@@ -88,6 +88,9 @@ pub struct ProgressStats {
     pub easy: i32,
     pub medium: i32,
     pub hard: i32,
+    pub easy_ac: i32,
+    pub medium_ac: i32,
+    pub hard_ac: i32,
 }
 
 impl ProgressStats {
@@ -105,6 +108,7 @@ pub fn progress(ps: &[Problem]) -> ProgressStats {
     };
 
     for p in ps {
+        let is_ac = p.status == "ac";
         if p.starred {
             stats.starred += 1;
         }
@@ -118,11 +122,15 @@ pub fn progress(ps: &[Problem]) -> ProgressStats {
             _ => {}
         }
 
-        match Difficulty::from_level(p.level) {
-            Some(Difficulty::Easy) => stats.easy += 1,
-            Some(Difficulty::Medium) => stats.medium += 1,
-            Some(Difficulty::Hard) => stats.hard += 1,
-            None => {}
+        let (total, solved) = match Difficulty::from_level(p.level) {
+            Some(Difficulty::Easy) => (&mut stats.easy, &mut stats.easy_ac),
+            Some(Difficulty::Medium) => (&mut stats.medium, &mut stats.medium_ac),
+            Some(Difficulty::Hard) => (&mut stats.hard, &mut stats.hard_ac),
+            None => continue,
+        };
+        *total += 1;
+        if is_ac {
+            *solved += 1;
         }
     }
 
@@ -289,6 +297,9 @@ mod tests {
                 easy: 3,
                 medium: 1,
                 hard: 1,
+                easy_ac: 1,
+                medium_ac: 0,
+                hard_ac: 0,
             }
         );
         assert_eq!(stats.remain(), 3);

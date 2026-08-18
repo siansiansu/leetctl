@@ -20,6 +20,11 @@ python3 scripts/gen_sets.py           # regenerate data/sets/*.toml (stdlib only
 CI (`.github/workflows/rust.yml`) runs the suite with `--all-features` on macOS and Linux, so a
 change that only compiles without `pym` will fail there.
 
+## Workflow
+
+Commit straight to `main` — no feature branch, no pull request. Skip the Codex review sandwich;
+`make check` before the commit is the gate.
+
 ## Layout
 
 | Path | Holds |

@@ -2,6 +2,7 @@
 mod detail;
 mod list;
 mod overlays;
+mod stats;
 
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -110,6 +111,15 @@ pub(crate) mod test_util {
         out
     }
 
+    /// The screen with runs of spaces collapsed, so a test can assert on `Listed: 3` without
+    /// pinning the column widths the stats panel pads its numbers to.
+    pub(crate) fn squeezed(m: &Model, w: u16, h: u16) -> String {
+        render(m, w, h)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// A loaded model with a solved problem, an attempted one, and a locked one.
     pub(crate) fn listed_model() -> Model {
         let mut m = test_model();
@@ -128,7 +138,7 @@ pub(crate) mod test_util {
 
 #[cfg(test)]
 mod tests {
-    use super::test_util::{listed_model, render};
+    use super::test_util::{listed_model, render, squeezed};
     use crate::tui::{Mode, test_model};
 
     #[test]
@@ -169,14 +179,16 @@ mod tests {
     }
 
     #[test]
-    fn the_footer_counts_match_the_filtered_pool() {
-        let screen = render(&listed_model(), 80, 20);
+    fn the_stats_panel_counts_match_the_filtered_pool() {
+        let screen = squeezed(&listed_model(), 80, 20);
 
         // trace: 3 problems, 1 ac, 1 notac, so 1 remains; one of each difficulty; 1 locked.
         assert!(screen.contains("Listed: 3"), "{screen}");
         assert!(screen.contains("Solved: 1"), "{screen}");
         assert!(screen.contains("Remain: 1"), "{screen}");
         assert!(screen.contains("Locked: 1"), "{screen}");
+        // The solved Two Sum is the only Easy problem, so that bar is full.
+        assert!(screen.contains("Easy ██████████ 1/1 100%"), "{screen}");
     }
 
     #[test]
@@ -393,7 +405,10 @@ mod tests {
         let screen = render(&m, 100, 20);
 
         assert!(screen.contains('●'), "due badge missing:\n{screen}");
-        assert!(screen.contains("Due: 1"), "due count missing:\n{screen}");
+        assert!(
+            squeezed(&m, 100, 20).contains("Due: 1"),
+            "due count missing:\n{screen}"
+        );
     }
 
     #[test]
@@ -406,7 +421,7 @@ mod tests {
         let screen = render(&m, 100, 20);
 
         assert!(screen.contains("due:"), "chip missing:\n{screen}");
-        assert!(screen.contains("Listed: 1"), "{screen}");
+        assert!(squeezed(&m, 100, 20).contains("Listed: 1"), "{screen}");
     }
 
     /// A description page with a finished test run on it.

@@ -21,10 +21,15 @@ use crate::{Cache, Result};
 
 pub use run::run;
 
-/// Rows the chrome takes off the terminal height: the top info line, the panel's two border rows,
-/// and the two footer lines. The model needs this to know how many problems fit, and the view
-/// lays the same rows out — they have to agree or the cursor scrolls to the wrong place.
-pub(crate) const ROWS_MARGIN: u16 = 5;
+/// Rows the list chrome takes off the terminal height: the top info line, the stats panel's five
+/// rows, the table's two border rows, and the hints line. The model needs this to know how many
+/// problems fit, and the view lays the same rows out — they have to agree or the cursor scrolls to
+/// the wrong place.
+pub(crate) const LIST_ROWS_MARGIN: u16 = 9;
+
+/// Rows the description chrome takes: the panel's two border rows and the hints line. Kept
+/// separate from the list because that page has no stats panel.
+const DETAIL_ROWS_MARGIN: u16 = 3;
 
 /// Columns the description pane loses to the panel border and its one-column padding on each side.
 const DETAIL_MARGIN: u16 = 4;
@@ -873,12 +878,19 @@ impl Model {
 
     /// The furthest the description can scroll: enough to bring its last line into view.
     pub(crate) fn detail_last_scroll(&self) -> usize {
-        self.detail_lines().len().saturating_sub(self.rows_height())
+        self.detail_lines()
+            .len()
+            .saturating_sub(self.detail_rows_height())
     }
 
     /// How many problem rows fit on screen.
     pub(crate) fn rows_height(&self) -> usize {
-        self.height.saturating_sub(ROWS_MARGIN) as usize
+        self.height.saturating_sub(LIST_ROWS_MARGIN) as usize
+    }
+
+    /// How many description lines fit on screen.
+    pub(crate) fn detail_rows_height(&self) -> usize {
+        self.height.saturating_sub(DETAIL_ROWS_MARGIN) as usize
     }
 
     fn clamp_cursor(&mut self) {

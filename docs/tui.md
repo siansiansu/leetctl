@@ -11,7 +11,7 @@ leetctl tui -S neetcode150 -D medium
 ```
 
 Everything it shows comes from the same cache and the same filter engine as `leetctl list`, so a
-count in the TUI footer matches `leetctl list --stat` for the equivalent flags. That is a design
+count in the TUI stats panel matches `leetctl list --stat` for the equivalent flags. That is a design
 constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 
 ## Keys
@@ -133,7 +133,7 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
   layer, and difficulty colors follow the CLI's existing green / yellow / red.
 - **Category, id-range, and `--plan` filters.** They exist on `leetctl list` and are a poor fit for
   an interactive panel.
-- **Language switching, starring, the stat chart, a settings screen.**
+- **Language switching, starring, a settings screen.**
 
 ## Roadmap
 
@@ -146,6 +146,7 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
 | 4 | Filtering: text, set, difficulty, tag | Merged |
 | 5 | Detail view, help, daily challenge | Merged |
 | 6 | Edit, test, submit | Merged |
+| 7 | Stats panel above the table: counts and difficulty bars | Merged |
 
 Phases 1 and 2 are behavior-preserving refactors of the existing commands: `leetctl list`, `pick`,
 `edit`, `test`, and `exec` must produce identical output across them, with one documented exception
@@ -160,8 +161,8 @@ human:
 
 1. Delete the cache and start `leetctl tui` — the download runs with no log lines leaking onto the
    screen.
-2. `/two !sum`, then `s` → `blind75`, then `d` twice: the footer counts match
-   `leetctl list -S blind75 -D medium --stat`.
+2. `/two !sum`, then `s` → `blind75`, then `d` twice: the stats panel counts match
+   `leetctl list -S blind75 -D medium --stat`, and its bars shrink with the pool.
 3. `Enter`, `D`, `?` — description, daily, help.
 4. `e` with a terminal editor (`nvim`) and with a windowed one (`code -w`): keystrokes during the
    edit are not swallowed by the TUI, and the screen comes back intact.

@@ -5,9 +5,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
+use super::stats::{STATS_PANEL_H, draw_stats_panel};
 use super::{difficulty_color, hints_line, pad1};
 use crate::cache::models::Problem;
-use crate::tui::{Model, PromptKind, ROWS_MARGIN};
+use crate::tui::{LIST_ROWS_MARGIN, Model, PromptKind};
 
 /// Fixed columns around the name: lock, status, `[id]`, difficulty, percent, the due dot, and the
 /// spaces between them. The name gets whatever is left.
@@ -47,7 +48,7 @@ const TAG_HELP: &str = "a LeetCode tag slug, e.g. dynamic-programming — enter 
 
 pub(super) fn draw_list(m: &Model, f: &mut Frame) {
     let area = f.area();
-    if area.height < ROWS_MARGIN + 1 || area.width < MIN_WIDTH {
+    if area.height < LIST_ROWS_MARGIN + 1 || area.width < MIN_WIDTH {
         return;
     }
 
@@ -58,22 +59,19 @@ pub(super) fn draw_list(m: &Model, f: &mut Frame) {
         Rect::new(area.x, area.y, area.width, 1),
     );
 
-    let panel_height = area.height - 3;
-    draw_panel(
+    draw_stats_panel(
         m,
         f,
-        Rect::new(area.x, area.y + 1, area.width, panel_height),
+        Rect::new(area.x, area.y + 1, area.width, STATS_PANEL_H),
     );
 
-    let footer_y = area.y + area.height - 2;
-    f.render_widget(
-        // One column goes to pad1's leading space.
-        Paragraph::new(pad1(stats_line(m, area.width.saturating_sub(1)))),
-        Rect::new(area.x, footer_y, area.width, 1),
-    );
+    let table_y = area.y + 1 + STATS_PANEL_H;
+    let table_height = area.height - STATS_PANEL_H - 2;
+    draw_panel(m, f, Rect::new(area.x, table_y, area.width, table_height));
+
     f.render_widget(
         Paragraph::new(pad1(status_or_hints(m))),
-        Rect::new(area.x, footer_y + 1, area.width, 1),
+        Rect::new(area.x, area.y + area.height - 1, area.width, 1),
     );
 }
 
@@ -276,50 +274,6 @@ fn fit(text: &str, width: u16) -> String {
     crate::helper::fit_width(text, width as usize, ELLIPSIS)
 }
 
-/// Gap between two stat groups.
-const STATS_GAP: &str = "   ";
-
-/// Progress through whatever is currently listed — the same numbers `leetctl list --stat` prints.
-///
-/// Groups are dropped from the right when they do not fit, most important first: a clipped count is
-/// worse than a missing one, because a half-drawn number still reads as a number.
-fn stats_line(m: &Model, width: u16) -> Line<'static> {
-    let s = m.stats();
-    let groups = [
-        ("Listed", s.listed, Color::Cyan),
-        ("Due", m.due_listed(), Color::Magenta),
-        ("Solved", s.ac, Color::Green),
-        ("Tried", s.notac, Color::Yellow),
-        ("Remain", s.remain(), Color::Gray),
-        ("Locked", s.locked, Color::DarkGray),
-        ("Easy", s.easy, difficulty_color(1)),
-        ("Medium", s.medium, difficulty_color(2)),
-        ("Hard", s.hard, difficulty_color(3)),
-    ];
-
-    let mut spans = Vec::new();
-    let mut used = 0usize;
-    for (label, value, color) in groups {
-        let text = format!("{label}: {value}");
-        let needed = text.len() + if spans.is_empty() { 0 } else { STATS_GAP.len() };
-        if used + needed > width as usize {
-            break;
-        }
-
-        if !spans.is_empty() {
-            spans.push(Span::raw(STATS_GAP));
-        }
-        spans.push(Span::styled(
-            format!("{label}: "),
-            Style::new().fg(Color::DarkGray),
-        ));
-        spans.push(Span::styled(value.to_string(), Style::new().fg(color)));
-        used += needed;
-    }
-
-    Line::from(spans)
-}
-
 /// The last line carries whatever needs saying most: an error or in-flight note if there is one,
 /// the key hints otherwise.
 fn status_or_hints(m: &Model) -> Line<'static> {
@@ -347,22 +301,6 @@ fn status_or_hints(m: &Model) -> Line<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_stats_line_drops_groups_that_do_not_fit_rather_than_clipping_a_number() {
-        let m = crate::tui::view::test_util::listed_model();
-
-        let wide = stats_line(&m, 120);
-        assert!(wide.to_string().contains("Hard: 1"), "{wide:?}");
-
-        // trace: "Listed: 3" is 9 columns and "Due: 0" costs 6 + a 3-column gap, so 21 fits
-        // exactly those two — "Solved: 1" would need 12 more.
-        let narrow = stats_line(&m, 21).to_string();
-        assert!(narrow.contains("Listed: 3"), "{narrow}");
-        assert!(narrow.contains("Due: 0"), "{narrow}");
-        assert!(!narrow.contains("Solved"), "{narrow}");
-        assert!(narrow.len() <= 21, "line grew past the width: {narrow:?}");
-    }
 
     #[test]
     fn fit_pads_short_names_to_the_column_width() {

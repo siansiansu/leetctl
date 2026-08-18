@@ -201,11 +201,11 @@ mod tests {
 
     #[test]
     fn ctrl_d_and_ctrl_u_move_half_a_screen() {
-        // trace: height 30 - ROWS_MARGIN 5 = 25 rows, half of which is 12.
+        // trace: height 30 - LIST_ROWS_MARGIN 9 = 21 rows, half of which is 10.
         let mut m = model_with(50);
 
         update(&mut m, ctrl('d'));
-        assert_eq!(m.cursor, 12);
+        assert_eq!(m.cursor, 10);
         update(&mut m, ctrl('u'));
         assert_eq!(m.cursor, 0);
     }
@@ -233,20 +233,20 @@ mod tests {
 
     #[test]
     fn the_viewport_follows_the_cursor_down_and_back_up() {
-        // trace: 25 visible rows, so row 24 is the last one on screen without scrolling.
+        // trace: 21 visible rows, so row 20 is the last one on screen without scrolling.
         let mut m = model_with(50);
 
-        m.cursor = 24;
+        m.cursor = 20;
         m.ensure_cursor_visible();
         assert_eq!(m.row_offset, 0);
 
-        m.cursor = 25;
+        m.cursor = 21;
         m.ensure_cursor_visible();
         assert_eq!(m.row_offset, 1);
 
         m.cursor = 49;
         m.ensure_cursor_visible();
-        assert_eq!(m.row_offset, 25, "the last screenful is flush with the end");
+        assert_eq!(m.row_offset, 29, "the last screenful is flush with the end");
 
         m.cursor = 0;
         m.ensure_cursor_visible();

@@ -106,7 +106,7 @@ pub(super) fn update_help(m: &mut Model, k: KeyEvent) {
 }
 
 fn half_page(m: &Model) -> isize {
-    (m.rows_height() / 2).max(1) as isize
+    (m.detail_rows_height() / 2).max(1) as isize
 }
 
 fn scroll(m: &mut Model, delta: isize) {
@@ -177,20 +177,20 @@ mod tests {
 
     #[test]
     fn scrolling_stops_at_both_ends() {
-        // trace: height 30 - ROWS_MARGIN 5 = 25 visible lines, so 100 lines scroll to 75.
+        // trace: height 30 - DETAIL_ROWS_MARGIN 3 = 27 visible lines, so 100 lines scroll to 73.
         let mut m = detail_model(100);
 
         update(&mut m, key(KeyCode::Char('k')));
         assert_eq!(m.detail_scroll, 0, "already at the top");
 
         update(&mut m, key(KeyCode::Char('G')));
-        assert_eq!(m.detail_scroll, 75);
+        assert_eq!(m.detail_scroll, 73);
 
         update(&mut m, key(KeyCode::Char('j')));
-        assert_eq!(m.detail_scroll, 75, "already at the bottom");
+        assert_eq!(m.detail_scroll, 73, "already at the bottom");
 
         update(&mut m, ctrl('u'));
-        assert_eq!(m.detail_scroll, 63);
+        assert_eq!(m.detail_scroll, 60);
 
         update(&mut m, key(KeyCode::Char('g')));
         update(&mut m, key(KeyCode::Char('g')));
@@ -412,7 +412,7 @@ mod tests {
             scroll: 0,
         });
 
-        // trace: 60 lines against 25 visible rows scrolls to 35.
+        // trace: 60 lines against 27 visible rows scrolls to 33.
         update(&mut m, key(KeyCode::Char('G')));
         assert_eq!(
             m.outcome.as_ref().unwrap().scroll,
@@ -423,7 +423,7 @@ mod tests {
         update(&mut m, key(KeyCode::Char('j')));
         assert_eq!(m.outcome.as_ref().unwrap().scroll, 1);
         update(&mut m, ctrl('d'));
-        assert_eq!(m.outcome.as_ref().unwrap().scroll, 13);
+        assert_eq!(m.outcome.as_ref().unwrap().scroll, 14);
         update(&mut m, ctrl('u'));
         assert_eq!(m.outcome.as_ref().unwrap().scroll, 1);
 
