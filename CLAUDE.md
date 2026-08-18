@@ -5,6 +5,9 @@ Eleven curated problem sets are compiled into the binary so filtering by set nee
 
 ## Build & test
 
+`make` prints every target; `make check` is fmt-check + clippy + tests, which is what CI gates on.
+The underlying commands:
+
 ```sh
 cargo build
 cargo test                            # what CI runs, as `cargo nextest run --release --all-features`

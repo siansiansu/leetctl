@@ -170,6 +170,34 @@ leetctl completions fish
   and how submissions grade themselves.
 - [Scripting](./docs/scripting.md) — filtering problems with custom Python plans.
 
+## Development
+
+`make` on its own prints the target list; there is nothing in it a plain `cargo` command could not
+do, it just saves remembering which flags CI uses.
+
+```sh
+make            # the target list
+make check      # fmt-check + clippy + tests — everything CI gates on
+make run ARGS="review --all"
+```
+
+| Target | Does |
+| --- | --- |
+| `build` / `release` | debug or optimised build |
+| `install` | `cargo install --path .` into `~/.cargo/bin` |
+| `run` | run the debug binary, arguments in `ARGS` |
+| `test` | the test suite |
+| `test-pym` | plus the optional pyo3 `--plan` path (needs a Python dev install) |
+| `test-ci` | exactly what CI runs, via `cargo-nextest` |
+| `lint` / `fmt` / `fmt-check` | clippy with warnings denied; format; fail on unformatted |
+| `check` | `fmt-check` + `lint` + `test` |
+| `sets` | regenerate `data/sets/*.toml` — see [Problem sets](./docs/sets.md) |
+| `doc` | build and open the API docs |
+| `clean` | remove `target/` |
+
+CI runs the suite with `--all-features` on macOS and Linux, so a change that only compiles without
+`pym` fails there — `make test-pym` catches it locally.
+
 ## Credits
 
 leetctl is a fork of [clearloop/leetcode-cli](https://github.com/clearloop/leetcode-cli), which is
