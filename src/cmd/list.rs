@@ -30,6 +30,8 @@ static LIST_AFTER_HELP: &str = r#"EXAMPLES:
     leetctl list -S blind75        List questions in the Blind 75 set
     leetctl list -S blind75 -s     Show progress through the Blind 75 set
     leetctl list -S google -D hard List hard questions in the Google set
+    leetctl list --due             List questions the review deck says are due
+    leetctl list --due -S blind75  List due questions from the Blind 75 set
 
 Run `leetctl sets` for the available --set values.
 "#;
@@ -76,6 +78,10 @@ pub struct ListArgs {
     /// Filter questions by difficulty
     #[arg(short = 'D', long, value_enum, ignore_case = true)]
     pub difficulty: Option<Difficulty>,
+
+    /// Only questions the review deck says are due
+    #[arg(long)]
+    pub due: bool,
 }
 
 impl ListArgs {
@@ -98,6 +104,13 @@ impl ListArgs {
             }
         }
 
+        // Resolved here, like the tag ids: reading the deck is a cache call, and the filter
+        // engine stays synchronous.
+        let due_fids = match self.due {
+            true => Some(cache.due_review_fids(crate::srs::today())?),
+            false => None,
+        };
+
         let tag_ids = match self.tag {
             Some(ref tag) => Some(cache.get_tagged_questions(tag).await?),
             None => None,
@@ -113,6 +126,7 @@ impl ListArgs {
                 difficulty: self.difficulty,
                 range: (self.range.len() >= 2).then(|| (self.range[0], self.range[1])),
                 tag_ids,
+                due_fids,
             },
         )?;
 

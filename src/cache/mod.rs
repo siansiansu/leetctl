@@ -167,6 +167,40 @@ impl Cache {
         .ok_or(Error::NoneError)
     }
 
+    /// The frontend id of the problem LeetCode calls `internal_id`.
+    ///
+    /// The judge answers in internal ids, and everything the user types — `leetctl pick 1`, the
+    /// review deck's key — is a frontend id. This is the only place the two are joined.
+    fn problem_fid(&self, internal_id: i32) -> Result<i32, Error> {
+        Ok(problems
+            .filter(id.eq(internal_id))
+            .select(fid)
+            .first(&mut self.conn()?)?)
+    }
+
+    /// Feed a finished submission into the review deck.
+    ///
+    /// An accepted submission enrols the problem and grades it `good`. A rejected one grades an
+    /// already-enrolled problem `again` and does nothing else: failing a problem you have never
+    /// solved is not a lapse, and enrolling it would fill the deck with problems you have not
+    /// learned yet. Test runs never reach here — see `VerifyResult::submitted_problem_id`.
+    fn record_submission(&self, res: &VerifyResult) -> Result<(), Error> {
+        let Some(internal_id) = res.submitted_problem_id()? else {
+            return Ok(());
+        };
+
+        let rfid = self.problem_fid(internal_id)?;
+        let today = crate::srs::today();
+
+        if res.is_accepted() {
+            self.grade_review(rfid, crate::srs::Grade::Good, today)?;
+        } else {
+            self.grade_enrolled_review(rfid, crate::srs::Grade::Again, today)?;
+        }
+
+        Ok(())
+    }
+
     /// Get problems from cache
     pub fn get_problems(&self) -> Result<Vec<Problem>, Error> {
         Ok(problems.load::<Problem>(&mut self.conn()?)?)
@@ -408,10 +442,12 @@ impl Cache {
 
         // Marking the row solved belongs to the submission, not to rendering its result. It used
         // to happen inside `VerifyResult`'s `Display` impl, which meant formatting a result wrote
-        // to sqlite — the TUI formats results while drawing.
+        // to sqlite — the TUI formats results while drawing. The review deck is written here for
+        // the same reason.
         if let Some(pid) = res.accepted_problem_id()? {
             self.clone().update_after_ac(pid)?;
         }
+        self.record_submission(&res)?;
 
         Ok(res)
     }

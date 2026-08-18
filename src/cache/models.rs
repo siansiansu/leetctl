@@ -378,6 +378,22 @@ impl VerifyResult {
 
         self.submit.question_id.parse().map(Some)
     }
+
+    /// Internal problem id of a submission the judge finished, accepted or not — what the review
+    /// deck grades on.
+    ///
+    /// `compare_result` is the per-case comparison string, and LeetCode sends it only once cases
+    /// have actually run. Gating on it keeps a test run out (it never carries one) and also keeps
+    /// a compile error out, which is a failure to build rather than a failure to recall.
+    pub fn submitted_problem_id(
+        &self,
+    ) -> std::result::Result<Option<i32>, std::num::ParseIntError> {
+        if !matches!(self.result_type, Run::Submit) || self.submit.compare_result.is_empty() {
+            return Ok(None);
+        }
+
+        self.submit.question_id.parse().map(Some)
+    }
 }
 
 impl std::fmt::Display for VerifyResult {
@@ -757,6 +773,29 @@ mod tests {
         let mut unparseable = accepted_submission();
         unparseable.submit.question_id = "seven-oh-four".to_string();
         assert!(unparseable.accepted_problem_id().is_err());
+    }
+
+    #[test]
+    fn submitted_problem_id_covers_rejected_submissions_too() {
+        // What the deck grades `good`.
+        assert_eq!(accepted_submission().submitted_problem_id(), Ok(Some(704)));
+
+        // What it grades `again`: the judge ran the cases and some failed.
+        let mut wrong_answer = accepted_submission();
+        wrong_answer.status.status_code = 11;
+        assert_eq!(wrong_answer.submitted_problem_id(), Ok(Some(704)));
+
+        // A test run never grades anything — it carries no `compare_result`.
+        let mut passing_test = accepted_submission();
+        passing_test.result_type = Run::Test;
+        passing_test.submit.compare_result = String::new();
+        assert_eq!(passing_test.submitted_problem_id(), Ok(None));
+
+        // Neither does a compile error: nothing ran, so nothing was recalled or forgotten.
+        let mut compile_error = accepted_submission();
+        compile_error.status.status_code = 20;
+        compile_error.submit.compare_result = String::new();
+        assert_eq!(compile_error.submitted_problem_id(), Ok(None));
     }
 
     /// Regression guard: formatting an accepted submission used to open the sqlite cache and write

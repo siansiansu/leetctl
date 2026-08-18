@@ -25,6 +25,9 @@ pub struct ProblemFilters {
     pub range: Option<(i32, i32)>,
     /// Internal problem ids a tag resolved to.
     pub tag_ids: Option<Vec<String>>,
+    /// Frontend ids the review deck reports due, resolved by the caller for the same reason
+    /// `tag_ids` is: reading the deck is a cache call, and [`apply`] stays synchronous.
+    pub due_fids: Option<Vec<i32>>,
 }
 
 /// Narrow `ps` in place and sort it by frontend id.
@@ -39,6 +42,10 @@ pub fn apply(ps: &mut Vec<Problem>, filters: &ProblemFilters) -> Result<(), Erro
 
     if let Some(ref set_slug) = filters.set {
         crate::helper::retain_set(ps, set_slug)?;
+    }
+
+    if let Some(ref due_fids) = filters.due_fids {
+        ps.retain(|p| due_fids.contains(&p.fid));
     }
 
     if let Some(ref category) = filters.category {
@@ -233,6 +240,26 @@ mod tests {
     fn a_pool_narrowed_to_nothing_is_empty_not_an_error() {
         let filters = ProblemFilters {
             keyword: Some("no such problem".into()),
+            ..Default::default()
+        };
+        assert_eq!(narrowed(&filters), Vec::<i32>::new());
+    }
+
+    #[test]
+    fn due_fids_keep_only_the_deck() {
+        let filters = ProblemFilters {
+            due_fids: Some(vec![11, 217]),
+            ..Default::default()
+        };
+        assert_eq!(narrowed(&filters), vec![11, 217]);
+    }
+
+    #[test]
+    fn an_empty_deck_is_not_the_same_as_no_deck_filter() {
+        // `Some(vec![])` is "nothing is due", which has to narrow to nothing rather than being
+        // treated as an unset filter.
+        let filters = ProblemFilters {
+            due_fids: Some(vec![]),
             ..Default::default()
         };
         assert_eq!(narrowed(&filters), Vec::<i32>::new());

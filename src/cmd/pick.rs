@@ -22,6 +22,8 @@ static PICK_AFTER_HELP: &str = r#"EXAMPLES:
     leetctl pick -t dynamic-programming -D hard   Random hard dynamic-programming problem
     leetctl pick -S blind75 -D medium             Random medium problem from Blind 75
     leetctl pick -S neetcode150 -q DL             Random unsolved, unlocked NeetCode 150 problem
+    leetctl pick --due                            Random problem the review deck says is due
+    leetctl pick --due -D hard                    Random hard problem that is due
 
 Filters narrow the pool a random pick draws from, so they cannot be combined with an explicit
 problem id or with --daily, which name a single problem outright. Run `leetctl sets` for the
@@ -31,7 +33,7 @@ available --set values.
 /// The args that narrow the pool a random pick draws from, as one clap group so that naming a
 /// single problem outright — by id or `--daily` — can exclude all of them without this list being
 /// written down twice.
-const FILTER_ARGS: [&str; 5] = ["plan", "query", "tag", "difficulty", "set"];
+const FILTER_ARGS: [&str; 6] = ["plan", "query", "tag", "difficulty", "set", "due"];
 const FILTER_GROUP: &str = "filters";
 
 /// How many times to re-request a problem's description before giving up on a flaky network.
@@ -76,6 +78,10 @@ pub struct PickArgs {
         value_parser = clap::builder::PossibleValuesParser::new(crate::sets::slugs()),
     )]
     pub set: Option<String>,
+
+    /// Draw only from the problems the review deck says are due
+    #[arg(long)]
+    pub due: bool,
 
     /// Pick today's daily challenge
     #[arg(short = 'd', long, conflicts_with = FILTER_GROUP)]
@@ -151,6 +157,13 @@ impl PickArgs {
             crate::helper::squash(&mut problems, ids)?;
         }
 
+        // The deck is a cache read rather than a property of the problem row, so it is resolved
+        // here and handed to the offline pass as a plain id list.
+        let due_fids = match self.due {
+            true => Some(cache.due_review_fids(crate::srs::today())?),
+            false => None,
+        };
+
         // Tag membership is the one filter that needs the network, so it stays here rather than
         // in the offline pass below.
         if let Some(ref tag) = self.tag {
@@ -158,16 +171,23 @@ impl PickArgs {
             crate::helper::squash(&mut problems, ids)?;
         }
 
-        self.narrow_offline(problems)
+        self.narrow_offline(problems, due_fids.as_deref())
     }
 
     /// Set, query, and difficulty filters — everything decidable from the local cache alone —
     /// plus the single emptiness check that keeps a filtered-to-nothing pool from reaching the
     /// random draw. Split out from [`PickArgs::candidates`] so that path is testable without a
     /// cache.
-    fn narrow_offline(&self, mut problems: Vec<Problem>) -> Result<Vec<Problem>, Error> {
+    fn narrow_offline(
+        &self,
+        mut problems: Vec<Problem>,
+        due_fids: Option<&[i32]>,
+    ) -> Result<Vec<Problem>, Error> {
         if let Some(ref set_slug) = self.set {
             crate::helper::retain_set(&mut problems, set_slug)?;
+        }
+        if let Some(due_fids) = due_fids {
+            problems.retain(|problem| due_fids.contains(&problem.fid));
         }
         if let Some(ref query) = self.query {
             crate::helper::filter(&mut problems, query.to_string());
@@ -185,6 +205,9 @@ impl PickArgs {
     /// The active filters, for an error message that says which combination came up empty.
     fn describe_filters(&self) -> String {
         let mut parts = Vec::new();
+        if self.due {
+            parts.push("due today".to_string());
+        }
         if let Some(ref set_slug) = self.set {
             parts.push(format!("set `{set_slug}`"));
         }
@@ -332,21 +355,21 @@ mod tests {
     #[test]
     fn difficulty_filter_keeps_only_that_level() {
         let args = parse(&["pick", "--difficulty", "hard"]).unwrap();
-        let kept = args.narrow_offline(fixture()).unwrap();
+        let kept = args.narrow_offline(fixture(), None).unwrap();
         assert_eq!(fids(&kept), vec![4]);
     }
 
     #[test]
     fn set_filter_keeps_only_members() {
         let args = parse(&["pick", "--set", "blind75"]).unwrap();
-        let kept = args.narrow_offline(fixture()).unwrap();
+        let kept = args.narrow_offline(fixture(), None).unwrap();
         assert_eq!(fids(&kept), vec![1, 11, 217]);
     }
 
     #[test]
     fn set_and_difficulty_compose() {
         let args = parse(&["pick", "-S", "blind75", "-D", "easy"]).unwrap();
-        let kept = args.narrow_offline(fixture()).unwrap();
+        let kept = args.narrow_offline(fixture(), None).unwrap();
         assert_eq!(fids(&kept), vec![1, 217]);
     }
 
@@ -355,7 +378,7 @@ mod tests {
     fn a_pool_filtered_to_nothing_is_an_error_not_a_panic() {
         // -q h keeps hard, -D easy keeps easy: nothing is both.
         let args = parse(&["pick", "-q", "h", "-D", "easy"]).unwrap();
-        match args.narrow_offline(fixture()) {
+        match args.narrow_offline(fixture(), None) {
             Err(Error::NoProblemsMatch(filters)) => {
                 assert_eq!(filters, "difficulty `easy` + query `h`");
             }
@@ -372,7 +395,7 @@ mod tests {
         // 4 and 42 are not in Blind 75, so the set filter empties this pool.
         let outside_the_set = vec![problem(4, 3), problem(42, 1)];
         assert!(matches!(
-            args.narrow_offline(outside_the_set),
+            args.narrow_offline(outside_the_set, None),
             Err(Error::NoProblemsMatch(_))
         ));
     }
@@ -380,8 +403,27 @@ mod tests {
     #[test]
     fn an_unfiltered_pool_passes_through_untouched() {
         let args = parse(&["pick"]).unwrap();
-        let kept = args.narrow_offline(fixture()).unwrap();
+        let kept = args.narrow_offline(fixture(), None).unwrap();
         assert_eq!(fids(&kept), vec![1, 4, 11, 42, 217]);
+    }
+
+    #[test]
+    fn the_due_filter_keeps_only_the_deck() {
+        let args = parse(&["pick", "--due"]).unwrap();
+        let kept = args.narrow_offline(fixture(), Some(&[4, 42])).unwrap();
+        assert_eq!(fids(&kept), vec![4, 42]);
+    }
+
+    #[test]
+    fn an_empty_deck_is_an_error_rather_than_the_whole_catalog() {
+        let args = parse(&["pick", "--due"]).unwrap();
+        match args.narrow_offline(fixture(), Some(&[])) {
+            Err(Error::NoProblemsMatch(filters)) => assert_eq!(filters, "due today"),
+            other => panic!(
+                "expected NoProblemsMatch, got {:?}",
+                other.map(|p| fids(&p))
+            ),
+        }
     }
 
     #[test]
