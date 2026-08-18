@@ -23,10 +23,11 @@ change that only compiles without `pym` will fail there.
 | --- | --- |
 | `src/cli.rs` | clap parser and the single subcommand dispatch |
 | `src/cmd/` | one module per subcommand; `mod.rs` has the shared `populated_problems` |
-| `src/cache/` | SQLite (diesel) cache wrapping the API client: `mod.rs` operations, `models.rs` types, `parser.rs` JSON → model |
+| `src/cache/` | SQLite (diesel) cache wrapping the API client: `mod.rs` operations, `models.rs` types, `parser.rs` JSON → model, `reviews.rs` the review deck |
 | `src/plugins/` | `leetcode.rs` HTTP/GraphQL client, `chrome.rs` cookie extraction |
 | `src/sets/` | compile-time curated sets; `REGISTRY` maps slug → `include_str!`'d TOML |
 | `src/filters.rs` | `ProblemFilters` / `apply` / `progress` — the one filter engine |
+| `src/srs.rs` | SM-2 spaced-repetition schedule and calendar-day helpers; no I/O |
 | `src/scaffold.rs` | solution and test-case file creation; editor invocation |
 | `src/helper.rs` | filter primitives, `Difficulty`, HTML → text, path builders |
 | `data/sets/` | generated set files — never hand-edit |
@@ -54,4 +55,4 @@ Phases 1 and 2 refactor the existing commands behind these rules and must not ch
 
 [configuration](./docs/configuration.md) · [cookies](./docs/cookies.md) ·
 [editors](./docs/editors.md) · [scripting](./docs/scripting.md) · [sets](./docs/sets.md) ·
-[tui](./docs/tui.md)
+[srs](./docs/srs.md) · [tui](./docs/tui.md)

@@ -149,6 +149,8 @@ leetctl completions fish
   `leetcode.cn` support, and environment-variable overrides.
 - [Editors & LSP](./docs/editors.md) — getting rust-analyzer (and other language servers) working
   with generated solution files.
+- [Spaced repetition](./docs/srs.md) — the `leetctl review` deck: the SM-2 schedule, the commands,
+  and how submissions grade themselves.
 - [Scripting](./docs/scripting.md) — filtering problems with custom Python plans.
 
 ## Credits
