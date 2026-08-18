@@ -8,6 +8,10 @@
 LeetCode from the command line. Pick a problem, solve it in your editor, test and submit — without
 opening a browser.
 
+<p align="center">
+  <img src="./docs/public/demo.gif" alt="leetctl demo: the TUI stats panel, search, curated sets, difficulty and deck filters, a problem description, and the key list" width="900">
+</p>
+
 Beyond the usual: **eleven curated problem sets are compiled into the binary**, so you can draw a
 random problem from Blind 75, NeetCode 250, or a company list, narrowed by topic and difficulty:
 

@@ -6,7 +6,7 @@ CARGO ?= cargo
 PYTHON ?= python3
 
 .DEFAULT_GOAL := help
-.PHONY: help build release install run test test-pym test-ci lint fmt fmt-check check sets doc clean
+.PHONY: help build release install run test test-pym test-ci lint fmt fmt-check check sets demo doc clean
 
 help: ## Print this list
 	@printf '\033[1mleetctl\033[0m — make targets\n\n'
@@ -58,6 +58,10 @@ check: fmt-check lint test ## Everything CI gates on, in one go
 
 sets: ## Regenerate data/sets/*.toml from the curated sources
 	$(PYTHON) scripts/gen_sets.py
+
+demo: release ## Re-record docs/public/demo.gif with vhs (needs vhs; uses the real cache)
+	PATH="$$(pwd)/target/release:$$PATH" vhs docs/demo.tape
+	gifsicle -O3 --lossy=40 --colors 96 docs/public/demo.gif -o docs/public/demo.gif
 
 doc: ## Build the API docs and open them
 	$(CARGO) doc --no-deps --open

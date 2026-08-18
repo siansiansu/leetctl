@@ -14,6 +14,11 @@ Everything it shows comes from the same cache and the same filter engine as `lee
 count in the TUI stats panel matches `leetctl list --stat` for the equivalent flags. That is a design
 constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 
+![the TUI](./public/demo.gif)
+
+Re-record that with `make demo` — it needs [vhs](https://github.com/charmbracelet/vhs) and drives
+the real cache through [demo.tape](./demo.tape).
+
 ## The stats panel
 
 The panel above the table is a row of segments, drawn left to right:
