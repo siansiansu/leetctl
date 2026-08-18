@@ -14,6 +14,24 @@ use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+/// How long to wait between two polls of the judge, and how long to keep polling before
+/// giving up. LeetCode budgets requests per machine and answers anything over the budget
+/// with a 429 or a Cloudflare challenge page instead of JSON, so the gap has to stay in
+/// human territory: the previous 3ms gap fired hundreds of `check` requests per run and
+/// left the next `leetctl test` throttled.
+const VERIFY_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const VERIFY_POLL_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// True when a response is Cloudflare's throttle interstitial rather than an API answer.
+/// Recognising it keeps the "your cookies expired" message for actual auth failures — the
+/// challenge arrives with perfectly valid cookies.
+fn is_throttled(http_status: reqwest::StatusCode, body: &str) -> bool {
+    http_status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || body.contains("cf_chl_opt")
+        || body.contains("<title>Just a moment...</title>")
+}
 
 /// sqlite connection
 pub fn conn(p: String) -> Result<SqliteConnection, Error> {
@@ -73,11 +91,21 @@ impl Cache {
     }
 
     async fn resp_to_json<T: DeserializeOwned>(&self, resp: Response) -> Result<T, Error> {
-        let maybe_json: Result<T, _> = resp.json().await;
-        if maybe_json.is_err() && self.is_session_bad().await {
-            Err(Error::CookieError)
-        } else {
-            Ok(maybe_json?)
+        let http_status = resp.status();
+        let text = resp.text().await?;
+        if is_throttled(http_status, &text) {
+            return Err(Error::Throttled);
+        }
+
+        match serde_json::from_str(&text) {
+            Ok(json) => Ok(json),
+            Err(e) => {
+                if self.is_session_bad().await {
+                    Err(Error::CookieError)
+                } else {
+                    Err(e.into())
+                }
+            }
         }
     }
 
@@ -307,18 +335,24 @@ impl Cache {
         Ok((json, [url, conf.sys.urls.problem(&p.slug)]))
     }
 
-    /// TODO: The real delay
-    async fn recur_verify(&self, rid: String) -> Result<VerifyResult, Error> {
-        use std::time::Duration;
+    /// Poll the judge until it reports the run finished.
+    async fn poll_verify(&self, rid: String) -> Result<VerifyResult, Error> {
+        trace!("Polling judge for {rid}...");
+        let deadline = Instant::now() + VERIFY_POLL_TIMEOUT;
 
-        trace!("Run verify recursion...");
-        std::thread::sleep(Duration::from_micros(3000));
+        loop {
+            tokio::time::sleep(VERIFY_POLL_INTERVAL).await;
 
-        let json: VerifyResult = self
-            .resp_to_json(self.clone().0.verify_result(rid.clone()).await?)
-            .await?;
-
-        Ok(json)
+            let res: VerifyResult = self
+                .resp_to_json(self.clone().0.verify_result(rid.clone()).await?)
+                .await?;
+            if res.state == "SUCCESS" {
+                return Ok(res);
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::VerifyTimeout { rid });
+            }
+        }
     }
 
     /// Exec problem filter —— Test or Submit
@@ -332,13 +366,16 @@ impl Cache {
         let (json, [url, refer]) = self.pre_run_code(run.clone(), rfid, test_case).await?;
         trace!("Pre-run code result {:#?}, {}, {}", json, url, refer);
 
-        let text = self
+        let resp = self
             .0
             .clone()
             .run_code(json.clone(), url.clone(), refer.clone())
-            .await?
-            .text()
             .await?;
+        let http_status = resp.status();
+        let text = resp.text().await?;
+        if is_throttled(http_status, &text) {
+            return Err(Error::Throttled);
+        }
 
         let run_res: RunCode = serde_json::from_str(&text).map_err(|e| {
             anyhow!(
@@ -358,13 +395,10 @@ impl Cache {
             return Err(Error::CookieError);
         }
 
-        let mut res: VerifyResult = VerifyResult::default();
-        while res.state != "SUCCESS" {
-            res = match run {
-                Run::Test => self.recur_verify(run_res.interpret_id.clone()).await?,
-                Run::Submit => self.recur_verify(run_res.submission_id.to_string()).await?,
-            };
-        }
+        let mut res = match run {
+            Run::Test => self.poll_verify(run_res.interpret_id.clone()).await?,
+            Run::Submit => self.poll_verify(run_res.submission_id.to_string()).await?,
+        };
         trace!("Recur verify result {:#?}", res);
 
         res.name = json.get("name").ok_or(Error::NoneError)?.to_string();
@@ -389,5 +423,46 @@ impl Cache {
         diesel::sql_query(CREATE_TAGS_IF_NOT_EXISTS).execute(&mut c)?;
 
         Ok(Cache(LeetCode::new()?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_throttled;
+    use reqwest::StatusCode;
+
+    const CHALLENGE_PAGE: &str = "<!DOCTYPE html><html lang=\"en-US\"><head>\
+        <title>Just a moment...</title></head><body><script>\
+        (function(){window._cf_chl_opt = {cRay: 'a2d10820ce8588ff'};}());</script></body></html>";
+
+    #[test]
+    fn is_throttled_detects_cloudflare_challenge_page() {
+        assert!(is_throttled(StatusCode::OK, CHALLENGE_PAGE));
+    }
+
+    #[test]
+    fn is_throttled_detects_rate_limit_status() {
+        assert!(is_throttled(
+            StatusCode::TOO_MANY_REQUESTS,
+            "<html>slow down</html>"
+        ));
+    }
+
+    #[test]
+    fn is_throttled_passes_judge_json() {
+        assert!(!is_throttled(
+            StatusCode::OK,
+            r#"{"state":"SUCCESS","status_code":10}"#
+        ));
+    }
+
+    #[test]
+    fn is_throttled_passes_non_cloudflare_html() {
+        // A logged-out request gets LeetCode's own login page; that is a cookie problem,
+        // not a throttle, and must keep reaching the `CookieError` branch.
+        assert!(!is_throttled(
+            StatusCode::FORBIDDEN,
+            "<!DOCTYPE html><html><head><title>Sign In</title></head></html>"
+        ));
     }
 }

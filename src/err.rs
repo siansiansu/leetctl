@@ -79,6 +79,19 @@ pub enum Error {
          Relax the filters, or run `leetctl data -u` to refresh the problem cache."
     )]
     NoProblemsMatch(String),
+    #[error(
+        "LeetCode is throttling this machine: it answered with a Cloudflare challenge \
+         instead of a result. Wait a minute before retrying — loading {} in Chrome and \
+         clearing the challenge there also unblocks it.",
+        "https://leetcode.com".underline()
+    )]
+    Throttled,
+    #[error(
+        "The judge never reported a result for submission {rid}. It may still be running — \
+         check it at {}",
+        "https://leetcode.com/submissions/".underline()
+    )]
+    VerifyTimeout { rid: String },
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
     #[error(transparent)]
