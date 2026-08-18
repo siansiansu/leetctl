@@ -46,7 +46,7 @@ makes the card due tomorrow, available from midnight — not from 23:50 tomorrow
 | `leetctl review grade <id> <again\|hard\|good\|easy>` | grade a card, enrolling it if new |
 | `leetctl review add <id>` | enroll a problem, due today |
 | `leetctl review drop <id>` | remove a problem from the deck |
-| `leetctl review stats` | due / learning / young / mature counts |
+| `leetctl review stats` | due / new / young / mature counts, and total lapses |
 
 Ids are frontend ids — the number `leetctl list` shows and `leetctl pick <id>` takes.
 

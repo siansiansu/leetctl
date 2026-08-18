@@ -7,6 +7,7 @@
 //!     exec    Submit solution [aliases: x]
 //!     list    List problems [aliases: l]
 //!     pick    Pick a problem [aliases: p]
+//!     review  Spaced-repetition deck [aliases: r]
 //!     sets    Show bundled problem sets
 //!     stat    Show simple chart about submissions [aliases: s]
 //!     test    Test a question [aliases: t]
@@ -62,6 +63,7 @@ mod edit;
 mod exec;
 mod list;
 mod pick;
+mod review;
 mod sets;
 mod stat;
 mod test;
@@ -73,6 +75,7 @@ pub use edit::EditArgs;
 pub use exec::ExecArgs;
 pub use list::ListArgs;
 pub use pick::PickArgs;
+pub use review::ReviewArgs;
 pub use sets::SetsArgs;
 pub use stat::StatArgs;
 pub use test::TestArgs;

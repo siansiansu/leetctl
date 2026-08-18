@@ -1,5 +1,6 @@
 //! A set of helper traits
 pub use self::{
+    column::fit_width,
     digit::Digit,
     file::{code_path, load_script, test_cases_path},
     filter::{Difficulty, filter, retain_set, squash},
@@ -40,6 +41,68 @@ mod digit {
             s.push_str(&space);
 
             s
+        }
+    }
+}
+
+/// Fitting a value into a fixed-width table column.
+mod column {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+    const ETC: &str = "...";
+
+    /// Pad or truncate `text` to exactly `width` display columns.
+    ///
+    /// Width is counted in columns rather than chars, so a CJK problem name lines up with an ASCII
+    /// one. An overlong value ends in `...`, which is part of the budget — the result is never
+    /// wider than `width`.
+    pub fn fit_width(text: &str, width: usize) -> String {
+        let text_width = UnicodeWidthStr::width(text);
+        if text_width <= width {
+            return format!("{text}{}", " ".repeat(width - text_width));
+        }
+
+        let mut fitted = String::new();
+        let mut fitted_width = 0;
+        for c in text.chars() {
+            let char_width = UnicodeWidthChar::width(c).unwrap_or(0);
+            if fitted_width + char_width > width - ETC.len() {
+                break;
+            }
+            fitted.push(c);
+            fitted_width += char_width;
+        }
+
+        fitted.push_str(ETC);
+        let padding = width - UnicodeWidthStr::width(fitted.as_str());
+        fitted + &" ".repeat(padding)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_short_value_is_padded_to_the_column() {
+            assert_eq!(fit_width("Two Sum", 10), "Two Sum   ");
+        }
+
+        #[test]
+        fn an_exact_fit_is_left_alone() {
+            assert_eq!(fit_width("Two Sum", 7), "Two Sum");
+        }
+
+        #[test]
+        fn an_overlong_value_ends_in_an_ellipsis_inside_the_budget() {
+            // trace: width 10 leaves 7 columns before the "...", so "Median " is dropped at "Media".
+            assert_eq!(fit_width("Median of Two Sorted Arrays", 10), "Median ...");
+        }
+
+        #[test]
+        fn wide_characters_count_two_columns() {
+            // trace: width 6 leaves 3 columns before the "...", and each ideograph is 2 wide, so
+            // only the first fits — "兩" + "..." is 5 columns, padded back out to 6.
+            assert_eq!(fit_width("兩數之和", 6), "兩... ");
         }
     }
 }

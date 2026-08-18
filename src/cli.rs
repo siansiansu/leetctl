@@ -1,8 +1,8 @@
 //! Clap Commanders
 use crate::{
     cmd::{
-        CompletionsArgs, DataArgs, EditArgs, ExecArgs, ListArgs, PickArgs, SetsArgs, StatArgs,
-        TestArgs, TuiArgs,
+        CompletionsArgs, DataArgs, EditArgs, ExecArgs, ListArgs, PickArgs, ReviewArgs, SetsArgs,
+        StatArgs, TestArgs, TuiArgs,
     },
     err::Error,
 };
@@ -58,24 +58,28 @@ pub enum Commands {
     #[command(visible_alias = "p", display_order = 5)]
     Pick(PickArgs),
 
+    /// Review solved problems on a spaced-repetition schedule
+    #[command(visible_alias = "r", display_order = 6)]
+    Review(ReviewArgs),
+
     /// Show the curated problem sets available to --set
-    #[command(display_order = 6)]
+    #[command(display_order = 7)]
     Sets(SetsArgs),
 
     /// Show simple chart about submissions
-    #[command(visible_alias = "s", display_order = 7)]
+    #[command(visible_alias = "s", display_order = 8)]
     Stat(StatArgs),
 
     /// Test a question
-    #[command(visible_alias = "t", display_order = 8)]
+    #[command(visible_alias = "t", display_order = 9)]
     Test(TestArgs),
 
     /// Browse problems in a terminal UI
-    #[command(display_order = 9)]
+    #[command(display_order = 10)]
     Tui(TuiArgs),
 
     /// Generate shell Completions
-    #[command(visible_alias = "c", display_order = 10)]
+    #[command(visible_alias = "c", display_order = 11)]
     Completions(CompletionsArgs),
 }
 
@@ -104,6 +108,7 @@ pub async fn main() -> Result<(), Error> {
         Some(Commands::Exec(args)) => args.run().await,
         Some(Commands::List(args)) => args.run().await,
         Some(Commands::Pick(args)) => args.run().await,
+        Some(Commands::Review(args)) => args.run().await,
         Some(Commands::Sets(args)) => args.run(),
         Some(Commands::Stat(args)) => args.run().await,
         Some(Commands::Test(args)) => args.run().await,
