@@ -14,6 +14,25 @@ Everything it shows comes from the same cache and the same filter engine as `lee
 count in the TUI stats panel matches `leetctl list --stat` for the equivalent flags. That is a design
 constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 
+## The stats panel
+
+The panel above the table is a row of segments, drawn left to right:
+
+| Segment | Shows | Needs |
+| --- | --- | --- |
+| counts | `Listed` / `Due` / `Locked` | always drawn |
+| counts | `Solved` / `Tried` / `Remain` | 16 more columns |
+| bars | solved-versus-total per difficulty | 34 more columns |
+| extras | `Catalog` / `Deck` / `Daily` | 31 more columns, and shrinks to fit |
+
+A segment is drawn only once the whole of it fits, so a narrow terminal loses segments from the
+right rather than showing half a bar or a clipped number. Whatever width is left after the last
+segment widens the bars, up to 24 cells — which is why they stretch on a roomy terminal.
+
+The counts and the bars describe the filtered pool, the same numbers as `leetctl list --stat`. The
+extras describe everything cached: the whole catalog, the whole [review deck](./srs.md) (`Due:` on
+the left counts only what is listed), and today's challenge.
+
 ## Keys
 
 | Key | Where | Does |
@@ -146,7 +165,7 @@ arrives free of ANSI escapes, and initializes the logger at `off` unless `--debu
 | 4 | Filtering: text, set, difficulty, tag | Merged |
 | 5 | Detail view, help, daily challenge | Merged |
 | 6 | Edit, test, submit | Merged |
-| 7 | Stats panel above the table: counts and difficulty bars | Merged |
+| 7 | Stats panel above the table: counts, difficulty bars, catalog / deck / daily | Merged |
 
 Phases 1 and 2 are behavior-preserving refactors of the existing commands: `leetctl list`, `pick`,
 `edit`, `test`, and `exec` must produce identical output across them, with one documented exception

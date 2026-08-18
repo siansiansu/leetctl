@@ -46,6 +46,11 @@ impl Cache {
             .load::<i32>(&mut self.conn()?)?)
     }
 
+    /// How many problems the deck tracks, due or not.
+    pub fn review_count(&self) -> Result<i64, Error> {
+        Ok(reviews.count().get_result(&mut self.conn()?)?)
+    }
+
     /// Put a problem in the deck, due immediately. A problem already in it keeps its schedule.
     pub fn enroll_review(&self, problem_fid: i32, today: Day) -> Result<(), Error> {
         let card = ReviewCard::new(problem_fid, Schedule::default(), today);

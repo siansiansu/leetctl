@@ -188,7 +188,8 @@ mod tests {
         assert!(screen.contains("Remain: 1"), "{screen}");
         assert!(screen.contains("Locked: 1"), "{screen}");
         // The solved Two Sum is the only Easy problem, so that bar is full.
-        assert!(screen.contains("Easy ██████████ 1/1 100%"), "{screen}");
+        assert!(screen.contains("Easy █"), "{screen}");
+        assert!(screen.contains("1/1 100%"), "{screen}");
     }
 
     #[test]

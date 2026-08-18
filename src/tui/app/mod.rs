@@ -37,6 +37,13 @@ const DETAIL_MARGIN: u16 = 4;
 /// Everything that can change the model.
 ///
 /// Loads carry their results rather than being awaited: the UI thread never blocks on I/O.
+/// What one read of the review deck found: which problems are due today, and how big the deck is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DeckState {
+    pub due_fids: Vec<i32>,
+    pub tracked: i32,
+}
+
 pub enum Msg {
     Key(KeyEvent),
     Resize(u16, u16),
@@ -68,9 +75,9 @@ pub enum Msg {
         kind: Run,
         res: Result<Box<VerifyResult>>,
     },
-    /// The frontend ids the review deck says are due. Re-read whenever the deck changes, so the
-    /// badge and the footer count cannot drift from what `leetctl review` would print.
-    DueLoaded(Result<Vec<i32>>),
+    /// The state of the review deck. Re-read whenever the deck changes, so the badge and the
+    /// stats panel cannot drift from what `leetctl review` would print.
+    DueLoaded(Result<DeckState>),
     /// A card the user graded from the description page.
     ReviewGraded {
         fid: i32,
@@ -244,7 +251,14 @@ impl Backend {
         let cache = self.cache.clone();
         let tx = self.tx.clone();
         self.rt.spawn(async move {
-            let res = cache.due_review_fids(crate::srs::today());
+            let res = cache
+                .due_review_fids(crate::srs::today())
+                .and_then(|due_fids| {
+                    cache.review_count().map(|tracked| DeckState {
+                        due_fids,
+                        tracked: tracked as i32,
+                    })
+                });
             let _ = tx.send(Msg::DueLoaded(res));
         });
     }
@@ -298,6 +312,8 @@ pub struct Model {
     pub(crate) due: HashSet<i32>,
     /// Only problems the deck says are due.
     pub(crate) due_only: bool,
+    /// How many problems the deck tracks in total, due or not — the stats panel's deck line.
+    pub(crate) deck_tracked: i32,
     /// The tag whose members are being shown, once its ids have arrived.
     pub(crate) tag: Option<String>,
     pub(crate) prompt: Option<Prompt>,
@@ -356,6 +372,7 @@ impl Model {
             unsolved_only: false,
             due: HashSet::new(),
             due_only: false,
+            deck_tracked: 0,
             tag: None,
             prompt: None,
             picker: None,
@@ -487,8 +504,9 @@ impl Model {
                 }
             }
             Msg::DueLoaded(res) => match res {
-                Ok(fids) => {
-                    self.due = fids.into_iter().collect();
+                Ok(deck) => {
+                    self.deck_tracked = deck.tracked;
+                    self.due = deck.due_fids.into_iter().collect();
                     // The deck is one of the filters, so a fresh answer re-derives the table.
                     self.apply_filters();
                 }
@@ -936,6 +954,7 @@ pub(crate) fn test_model() -> Model {
         unsolved_only: false,
         due: HashSet::new(),
         due_only: false,
+        deck_tracked: 0,
         tag: None,
         prompt: None,
         picker: None,
