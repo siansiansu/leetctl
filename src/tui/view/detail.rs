@@ -21,7 +21,7 @@ const DETAIL_HINTS: [(&str, &str); 6] = [
 const HELP_HINTS: [(&str, &str); 1] = [("esc", "back")];
 
 /// Every key the TUI answers to, by screen.
-const HELP_ROWS: [(&str, &str, &str); 15] = [
+const HELP_ROWS: [(&str, &str, &str); 17] = [
     (
         "j / k, ↓ / ↑",
         "list, description",
@@ -43,6 +43,16 @@ const HELP_ROWS: [(&str, &str, &str); 15] = [
     ("d", "list", "cycle difficulty: all, easy, medium, hard"),
     ("u", "list", "show only unsolved problems"),
     ("t", "list", "filter by LeetCode tag"),
+    (
+        "r",
+        "list",
+        "show only problems the review deck says are due",
+    ),
+    (
+        "1 / 2 / 3 / 4",
+        "description",
+        "grade recall: again, hard, good, easy",
+    ),
     ("D", "list", "jump to today's daily challenge"),
     ("esc", "list", "drop every filter"),
     ("esc / q", "description", "back to the table"),

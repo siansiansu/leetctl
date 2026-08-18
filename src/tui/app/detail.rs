@@ -3,6 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::Model;
 use crate::cache::Run;
+use crate::srs::Grade;
 
 pub(super) fn update(m: &mut Model, k: KeyEvent) {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -45,7 +46,23 @@ pub(super) fn update(m: &mut Model, k: KeyEvent) {
         KeyCode::Char('e') => m.request_editor(),
         KeyCode::Char('t') => m.start_exec(Run::Test),
         KeyCode::Char('S') => m.ask_to_submit(),
-        _ => {}
+        _ => {
+            if let Some(grade) = grade_key(k.code) {
+                m.grade_detail(grade);
+            }
+        }
+    }
+}
+
+/// `1` to `4`, worst recall to best — the order every spaced-repetition tool uses, and the order
+/// they sit in on the keyboard.
+fn grade_key(code: KeyCode) -> Option<Grade> {
+    match code {
+        KeyCode::Char('1') => Some(Grade::Again),
+        KeyCode::Char('2') => Some(Grade::Hard),
+        KeyCode::Char('3') => Some(Grade::Good),
+        KeyCode::Char('4') => Some(Grade::Easy),
+        _ => None,
     }
 }
 
@@ -60,7 +77,11 @@ fn update_outcome(m: &mut Model, k: KeyEvent, ctrl: bool) {
         KeyCode::Char('e') => m.request_editor(),
         KeyCode::Char('t') => m.start_exec(Run::Test),
         KeyCode::Char('S') => m.ask_to_submit(),
-        _ => {}
+        _ => {
+            if let Some(grade) = grade_key(k.code) {
+                m.grade_detail(grade);
+            }
+        }
     }
 }
 
@@ -131,6 +152,27 @@ mod tests {
 
         update(&mut m, key(KeyCode::Esc));
         assert_eq!(m.mode, Mode::List);
+    }
+
+    #[test]
+    fn the_number_keys_grade_the_open_problem() {
+        // The write itself needs a cache, which `test_model` has none of; what is checkable here
+        // is that the key reaches `grade_detail` and names the grade it asked for.
+        let mut m = detail_model(3);
+
+        update(&mut m, key(KeyCode::Char('2')));
+
+        assert!(m.status.contains("#1"), "{}", m.status);
+        assert!(m.status.contains("hard"), "{}", m.status);
+    }
+
+    #[test]
+    fn grade_keys_map_worst_to_best() {
+        assert_eq!(grade_key(KeyCode::Char('1')), Some(Grade::Again));
+        assert_eq!(grade_key(KeyCode::Char('2')), Some(Grade::Hard));
+        assert_eq!(grade_key(KeyCode::Char('3')), Some(Grade::Good));
+        assert_eq!(grade_key(KeyCode::Char('4')), Some(Grade::Easy));
+        assert_eq!(grade_key(KeyCode::Char('5')), None);
     }
 
     #[test]

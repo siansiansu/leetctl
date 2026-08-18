@@ -27,6 +27,7 @@ constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 | `s` | list | set picker (`j`/`k`, `enter` applies, `x` clears the set, `esc` closes) |
 | `d` | list | cycle difficulty: all → easy → medium → hard |
 | `u` | list | toggle unsolved-only |
+| `r` | list | toggle due-only — the [review deck](./srs.md) |
 | `t` | list | filter by tag — a LeetCode tag slug, looked up over the network |
 | `esc` | list | drop every filter at once |
 | `D` | list | jump to today's daily challenge |
@@ -34,6 +35,7 @@ constraint, not a coincidence — see [One filter engine](#one-filter-engine).
 | `t` | description | run the sample tests |
 | `S` | description | submit — asks `y` / `n` first |
 | `j` / `k`, `esc` | result pane | scroll the result, or close it |
+| `1` / `2` / `3` / `4` | description | grade recall: again / hard / good / easy |
 | `?` | anywhere | help |
 | `q` | list | quit |
 

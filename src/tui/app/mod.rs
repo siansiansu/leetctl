@@ -12,9 +12,10 @@ use std::time::{Duration, Instant};
 use crossterm::event::KeyEvent;
 
 use crate::cache::Run;
-use crate::cache::models::{Problem, VerifyResult};
+use crate::cache::models::{Problem, ReviewCard, VerifyResult};
 use crate::filters::{ProblemFilters, ProgressStats, progress};
 use crate::helper::Difficulty;
+use crate::srs::Grade;
 use crate::tui::input::Input;
 use crate::{Cache, Result};
 
@@ -61,6 +62,15 @@ pub enum Msg {
         fid: i32,
         kind: Run,
         res: Result<Box<VerifyResult>>,
+    },
+    /// The frontend ids the review deck says are due. Re-read whenever the deck changes, so the
+    /// badge and the footer count cannot drift from what `leetctl review` would print.
+    DueLoaded(Result<Vec<i32>>),
+    /// A card the user graded from the description page.
+    ReviewGraded {
+        fid: i32,
+        grade: Grade,
+        res: Result<ReviewCard>,
     },
     /// Advances the spinner while a run is in flight.
     Tick,
@@ -225,6 +235,24 @@ impl Backend {
         });
     }
 
+    fn load_due(&self) {
+        let cache = self.cache.clone();
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            let res = cache.due_review_fids(crate::srs::today());
+            let _ = tx.send(Msg::DueLoaded(res));
+        });
+    }
+
+    fn grade(&self, fid: i32, grade: Grade) {
+        let cache = self.cache.clone();
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            let res = cache.grade_review(fid, grade, crate::srs::today());
+            let _ = tx.send(Msg::ReviewGraded { fid, grade, res });
+        });
+    }
+
     /// One delayed tick. The handler asks for the next one while a run is still going, so the chain
     /// stops on its own instead of needing a thread to be told to stop.
     fn schedule_tick(&self) {
@@ -259,6 +287,11 @@ pub struct Model {
     pub(crate) search: String,
     /// Only problems that are neither solved nor attempted.
     pub(crate) unsolved_only: bool,
+    /// Every frontend id the review deck currently calls due, whether or not the list is narrowed
+    /// to them: the badge and the footer count need the whole set.
+    pub(crate) due: Vec<i32>,
+    /// Only problems the deck says are due.
+    pub(crate) due_only: bool,
     /// The tag whose members are being shown, once its ids have arrived.
     pub(crate) tag: Option<String>,
     pub(crate) prompt: Option<Prompt>,
@@ -315,6 +348,8 @@ impl Model {
             filters: opts.filters,
             search: String::new(),
             unsolved_only: false,
+            due: Vec::new(),
+            due_only: false,
             tag: None,
             prompt: None,
             picker: None,
@@ -350,6 +385,7 @@ impl Model {
             backend.load_problems();
             // Fetched up front so the table can badge today's problem without being asked.
             backend.load_daily();
+            backend.load_due();
         }
     }
 
@@ -422,6 +458,11 @@ impl Model {
                 self.exec = None;
                 match res {
                     Ok(result) => {
+                        // A submission grades its own card inside `exec_problem`, so the due set
+                        // on screen is stale the moment one finishes.
+                        if let (Run::Submit, Some(backend)) = (&kind, &self.backend) {
+                            backend.load_due();
+                        }
                         let accepted = result.is_accepted();
                         if accepted {
                             // `exec_problem` already wrote this to sqlite; the rows on screen are
@@ -439,6 +480,27 @@ impl Model {
                     Err(e) => self.status = e.to_string(),
                 }
             }
+            Msg::DueLoaded(res) => match res {
+                Ok(fids) => {
+                    self.due = fids;
+                    // The deck is one of the filters, so a fresh answer re-derives the table.
+                    self.apply_filters();
+                }
+                Err(e) => self.status = e.to_string(),
+            },
+            Msg::ReviewGraded { fid, grade, res } => match res {
+                Ok(card) => {
+                    self.status = format!(
+                        "#{fid} graded {} — back in {} days",
+                        grade.as_str(),
+                        card.interval_days
+                    );
+                    if let Some(backend) = &self.backend {
+                        backend.load_due();
+                    }
+                }
+                Err(e) => self.status = e.to_string(),
+            },
             Msg::Tick => {
                 if let Some(exec) = &mut self.exec {
                     exec.frame += 1;
@@ -472,6 +534,8 @@ impl Model {
     pub(crate) fn apply_filters(&mut self) {
         // `u` is the only thing that sets a query, so deriving it here keeps one source of truth.
         self.filters.query = self.unsolved_only.then(|| "D".to_string());
+        // Same for `r`: the deck is held whole in `due`, and the filter is a view of it.
+        self.filters.due_fids = self.due_only.then(|| self.due.clone());
 
         let mut ps = self.all.clone();
         match crate::filters::apply(&mut ps, &self.filters) {
@@ -510,6 +574,32 @@ impl Model {
     pub(crate) fn toggle_unsolved(&mut self) {
         self.unsolved_only = !self.unsolved_only;
         self.apply_filters();
+    }
+
+    pub(crate) fn toggle_due(&mut self) {
+        self.due_only = !self.due_only;
+        self.apply_filters();
+    }
+
+    /// Grades the problem whose description is open, and says so on the status line once the write
+    /// lands. Only from the description page: grading a row you have not looked at is a slip.
+    pub(crate) fn grade_detail(&mut self, grade: Grade) {
+        let Some(fid) = self.detail_fid else { return };
+
+        self.status = format!("Grading #{fid} {}…", grade.as_str());
+        if let Some(backend) = &self.backend {
+            backend.grade(fid, grade);
+        }
+    }
+
+    /// Whether the deck says this problem is due — what the table badges.
+    pub(crate) fn is_due(&self, fid: i32) -> bool {
+        self.due.contains(&fid)
+    }
+
+    /// How many of the problems on screen are due, for the footer.
+    pub(crate) fn due_listed(&self) -> i32 {
+        self.filtered.iter().filter(|p| self.is_due(p.fid)).count() as i32
     }
 
     /// Starts a tag fetch, superseding any request still in flight.
@@ -568,6 +658,7 @@ impl Model {
         self.filters = ProblemFilters::default();
         self.search.clear();
         self.unsolved_only = false;
+        self.due_only = false;
         self.tag = None;
         // Any tag fetch still in flight belongs to a filter that no longer exists.
         self.tag_gen += 1;
@@ -760,6 +851,7 @@ impl Model {
             || self.filters.keyword.is_some()
             || self.filters.tag_ids.is_some()
             || self.unsolved_only
+            || self.due_only
             || !self.search.is_empty()
             || self.tag.is_some()
     }
@@ -829,6 +921,8 @@ pub(crate) fn test_model() -> Model {
         filters: ProblemFilters::default(),
         search: String::new(),
         unsolved_only: false,
+        due: Vec::new(),
+        due_only: false,
         tag: None,
         prompt: None,
         picker: None,

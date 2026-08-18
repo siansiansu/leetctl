@@ -101,7 +101,7 @@ Two rules the rest of the codebase already lives by apply here too, and are easy
 | Phase | Scope | Status |
 | ---: | --- | --- |
 | 0 | this doc + memory | done |
-| 1 | `src/srs.rs` SM-2 engine, `reviews` table, `src/cache/reviews.rs` | pending |
-| 2 | `leetctl review` subcommand | pending |
-| 3 | auto-grade from submissions, `--due` on `list` and `pick` | pending |
-| 4 | TUI: due toggle, due badge, footer count, grade keys | pending |
+| 1 | `src/srs.rs` SM-2 engine, `reviews` table, `src/cache/reviews.rs` | done |
+| 2 | `leetctl review` subcommand | done |
+| 3 | auto-grade from submissions, `--due` on `list` and `pick` | done |
+| 4 | TUI: due toggle, due badge, footer count, grade keys | done |

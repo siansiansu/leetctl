@@ -46,6 +46,7 @@ pub(super) fn update(m: &mut Model, k: KeyEvent) {
         KeyCode::Char('s') => m.open_picker(),
         KeyCode::Char('d') => m.cycle_difficulty(),
         KeyCode::Char('u') => m.toggle_unsolved(),
+        KeyCode::Char('r') => m.toggle_due(),
         KeyCode::Enter => m.open_detail(),
         KeyCode::Char('D') => m.request_daily(),
         KeyCode::Char('?') => m.open_help(),
@@ -311,6 +312,45 @@ mod tests {
         assert!(m.prompt.is_none());
         assert_eq!(m.search, "");
         assert_eq!(m.filtered.len(), 20);
+    }
+
+    #[test]
+    fn r_narrows_to_the_review_deck_and_back() {
+        let mut m = model_with(4);
+        m.due = vec![2, 3];
+
+        update(&mut m, key(KeyCode::Char('r')));
+        assert!(m.due_only);
+        assert_eq!(
+            m.filtered.iter().map(|p| p.fid).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+
+        update(&mut m, key(KeyCode::Char('r')));
+        assert!(!m.due_only);
+        assert_eq!(m.filtered.len(), 4);
+    }
+
+    #[test]
+    fn an_empty_deck_narrows_to_nothing_rather_than_to_everything() {
+        let mut m = model_with(4);
+
+        update(&mut m, key(KeyCode::Char('r')));
+
+        assert!(m.filtered.is_empty(), "nothing is due, so nothing shows");
+    }
+
+    #[test]
+    fn esc_drops_the_due_filter_with_the_rest() {
+        let mut m = model_with(4);
+        m.due = vec![2];
+        update(&mut m, key(KeyCode::Char('r')));
+        assert!(m.has_filters());
+
+        update(&mut m, key(KeyCode::Esc));
+
+        assert!(!m.due_only);
+        assert_eq!(m.filtered.len(), 4);
     }
 
     #[test]

@@ -10,9 +10,9 @@ use super::{difficulty_color, hints_line, pad1};
 use crate::cache::models::Problem;
 use crate::tui::{Model, PromptKind, ROWS_MARGIN};
 
-/// Fixed columns around the name: lock, status, `[id]`, difficulty, percent, and the spaces
-/// between them. The name gets whatever is left.
-const FIXED_COLUMNS_WIDTH: u16 = 2 + 2 + 7 + 6 + 7 + 4;
+/// Fixed columns around the name: lock, status, `[id]`, difficulty, percent, the due dot, and the
+/// spaces between them. The name gets whatever is left.
+const FIXED_COLUMNS_WIDTH: u16 = 2 + 2 + 7 + 6 + 7 + 2 + 4;
 
 /// Below this width the table cannot show a name, so the whole screen is skipped rather than drawn
 /// as a column of punctuation.
@@ -24,18 +24,19 @@ const LIST_HINTS: [(&str, &str); 8] = [
     ("s", "set"),
     ("d", "difficulty"),
     ("u", "unsolved"),
+    ("r", "due"),
     ("enter", "open"),
-    ("e", "edit"),
     ("?", "help"),
 ];
 
 /// With any filter on, `esc` is the way back out, so it earns a slot.
-const LIST_HINTS_FILTERED: [(&str, &str); 8] = [
+const LIST_HINTS_FILTERED: [(&str, &str); 9] = [
     ("j/k", "move"),
     ("/", "search"),
     ("s", "set"),
     ("d", "difficulty"),
     ("u", "unsolved"),
+    ("r", "due"),
     ("e", "edit"),
     ("esc", "clear filters"),
     ("?", "help"),
@@ -143,6 +144,9 @@ fn filter_chips(m: &Model) -> Vec<(&'static str, String)> {
     if m.unsolved_only {
         chips.push(("unsolved", "on".to_string()));
     }
+    if m.due_only {
+        chips.push(("due", "on".to_string()));
+    }
     if let Some(keyword) = &f.keyword {
         chips.push(("name", keyword.clone()));
     }
@@ -189,7 +193,15 @@ fn draw_panel(m: &Model, f: &mut Frame, area: Rect) {
         .enumerate()
         .skip(m.row_offset)
         .take(inner.height as usize)
-        .map(|(i, p)| problem_row(p, name_width, i == m.cursor, m.daily_fid == Some(p.fid)))
+        .map(|(i, p)| {
+            problem_row(
+                p,
+                name_width,
+                i == m.cursor,
+                m.daily_fid == Some(p.fid),
+                m.is_due(p.fid),
+            )
+        })
         .collect();
 
     f.render_widget(Paragraph::new(rows), inner);
@@ -197,7 +209,13 @@ fn draw_panel(m: &Model, f: &mut Frame, area: Rect) {
 
 /// One table row. Built from the problem's fields rather than its `Display` impl, which writes ANSI
 /// escapes that ratatui would print literally.
-fn problem_row(p: &Problem, name_width: u16, selected: bool, is_daily: bool) -> Line<'static> {
+fn problem_row(
+    p: &Problem,
+    name_width: u16,
+    selected: bool,
+    is_daily: bool,
+    is_due: bool,
+) -> Line<'static> {
     let status = match p.status.as_str() {
         "ac" => Span::styled(" ✔", Style::new().fg(Color::Green)),
         "notac" => Span::styled(" ✘", Style::new().fg(Color::Red)),
@@ -228,6 +246,12 @@ fn problem_row(p: &Problem, name_width: u16, selected: bool, is_daily: bool) -> 
             format!(" {:>5.2}%", p.percent),
             Style::new().fg(Color::DarkGray),
         ),
+        // Trailing rather than sharing the lock column, which today's challenge already contends
+        // for: a problem can be locked, daily, and due at once.
+        match is_due {
+            true => Span::styled(" ●", Style::new().fg(Color::Magenta)),
+            false => Span::raw("  "),
+        },
     ];
 
     if selected {
@@ -277,6 +301,7 @@ fn stats_line(m: &Model, width: u16) -> Line<'static> {
     let s = m.stats();
     let groups = [
         ("Listed", s.listed, Color::Cyan),
+        ("Due", m.due_listed(), Color::Magenta),
         ("Solved", s.ac, Color::Green),
         ("Tried", s.notac, Color::Yellow),
         ("Remain", s.remain(), Color::Gray),
@@ -344,12 +369,12 @@ mod tests {
         let wide = stats_line(&m, 120);
         assert!(wide.to_string().contains("Hard: 1"), "{wide:?}");
 
-        // trace: "Listed: 3" is 9 columns and "Solved: 1" costs 9 + a 3-column gap, so 21 fits
-        // exactly those two and nothing after them.
+        // trace: "Listed: 3" is 9 columns and "Due: 0" costs 6 + a 3-column gap, so 21 fits
+        // exactly those two — "Solved: 1" would need 12 more.
         let narrow = stats_line(&m, 21).to_string();
         assert!(narrow.contains("Listed: 3"), "{narrow}");
-        assert!(narrow.contains("Solved: 1"), "{narrow}");
-        assert!(!narrow.contains("Tried"), "{narrow}");
+        assert!(narrow.contains("Due: 0"), "{narrow}");
+        assert!(!narrow.contains("Solved"), "{narrow}");
         assert!(narrow.len() <= 21, "line grew past the width: {narrow:?}");
     }
 

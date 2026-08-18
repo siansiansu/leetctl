@@ -384,6 +384,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_due_problem_is_dotted_in_the_table_and_counted_on_the_footer() {
+        let mut m = listed_model();
+        m.due = vec![4];
+        m.apply_filters();
+
+        let screen = render(&m, 100, 20);
+
+        assert!(screen.contains('●'), "due badge missing:\n{screen}");
+        assert!(screen.contains("Due: 1"), "due count missing:\n{screen}");
+    }
+
+    #[test]
+    fn narrowing_to_the_deck_says_so_in_the_header() {
+        let mut m = listed_model();
+        m.due = vec![4];
+        m.due_only = true;
+        m.apply_filters();
+
+        let screen = render(&m, 100, 20);
+
+        assert!(screen.contains("due:"), "chip missing:\n{screen}");
+        assert!(screen.contains("Listed: 1"), "{screen}");
+    }
+
     /// A description page with a finished test run on it.
     fn model_with_outcome(accepted: bool, kind: crate::cache::Run) -> crate::tui::Model {
         let mut m = listed_model();
