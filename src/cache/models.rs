@@ -187,7 +187,7 @@ impl std::fmt::Display for Problem {
             }
         }
 
-        name.push_str(&crate::helper::fit_width(&self.name, NAME_WIDTH));
+        name.push_str(&crate::helper::fit_width(&self.name, NAME_WIDTH, "..."));
 
         // Padded to the width of "Medium" so the columns line up.
         level = match crate::helper::Difficulty::from_level(self.level) {

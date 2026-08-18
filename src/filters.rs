@@ -45,7 +45,10 @@ pub fn apply(ps: &mut Vec<Problem>, filters: &ProblemFilters) -> Result<(), Erro
     }
 
     if let Some(ref due_fids) = filters.due_fids {
-        ps.retain(|p| due_fids.contains(&p.fid));
+        // Indexed first: a linear scan of the deck per problem is 4,000 x the deck size, and this
+        // runs on every keystroke in the TUI.
+        let due: std::collections::HashSet<i32> = due_fids.iter().copied().collect();
+        ps.retain(|p| due.contains(&p.fid));
     }
 
     if let Some(ref category) = filters.category {

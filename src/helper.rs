@@ -49,31 +49,34 @@ mod digit {
 mod column {
     use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-    const ETC: &str = "...";
-
-    /// Pad or truncate `text` to exactly `width` display columns.
+    /// Pad or truncate `text` to exactly `width` display columns, marking a truncation with
+    /// `ellipsis`.
     ///
-    /// Width is counted in columns rather than chars, so a CJK problem name lines up with an ASCII
-    /// one. An overlong value ends in `...`, which is part of the budget — the result is never
-    /// wider than `width`.
-    pub fn fit_width(text: &str, width: usize) -> String {
+    /// Widths are counted in columns rather than bytes or chars, so a CJK problem name lines up
+    /// with an ASCII one and a one-column `…` costs one column rather than its three bytes. The
+    /// ellipsis comes out of the budget: the result is never wider than `width`.
+    ///
+    /// The ellipsis differs by frontend — the plain lists spell it `...`, the TUI has the room to
+    /// use `…` — which is the only reason it is a parameter.
+    pub fn fit_width(text: &str, width: usize, ellipsis: &str) -> String {
         let text_width = UnicodeWidthStr::width(text);
         if text_width <= width {
             return format!("{text}{}", " ".repeat(width - text_width));
         }
 
+        let budget = width.saturating_sub(UnicodeWidthStr::width(ellipsis));
         let mut fitted = String::new();
         let mut fitted_width = 0;
         for c in text.chars() {
             let char_width = UnicodeWidthChar::width(c).unwrap_or(0);
-            if fitted_width + char_width > width - ETC.len() {
+            if fitted_width + char_width > budget {
                 break;
             }
             fitted.push(c);
             fitted_width += char_width;
         }
 
-        fitted.push_str(ETC);
+        fitted.push_str(ellipsis);
         let padding = width - UnicodeWidthStr::width(fitted.as_str());
         fitted + &" ".repeat(padding)
     }
@@ -84,25 +87,37 @@ mod column {
 
         #[test]
         fn a_short_value_is_padded_to_the_column() {
-            assert_eq!(fit_width("Two Sum", 10), "Two Sum   ");
+            assert_eq!(fit_width("Two Sum", 10, "..."), "Two Sum   ");
         }
 
         #[test]
         fn an_exact_fit_is_left_alone() {
-            assert_eq!(fit_width("Two Sum", 7), "Two Sum");
+            assert_eq!(fit_width("Two Sum", 7, "..."), "Two Sum");
         }
 
         #[test]
         fn an_overlong_value_ends_in_an_ellipsis_inside_the_budget() {
             // trace: width 10 leaves 7 columns before the "...", so "Median " is dropped at "Media".
-            assert_eq!(fit_width("Median of Two Sorted Arrays", 10), "Median ...");
+            assert_eq!(
+                fit_width("Median of Two Sorted Arrays", 10, "..."),
+                "Median ..."
+            );
+        }
+
+        #[test]
+        fn a_one_column_ellipsis_costs_one_column_not_three_bytes() {
+            // trace: "…" is 3 bytes but 1 column, so width 10 leaves 9 columns of text.
+            assert_eq!(
+                fit_width("Median of Two Sorted Arrays", 10, "…"),
+                "Median of…"
+            );
         }
 
         #[test]
         fn wide_characters_count_two_columns() {
             // trace: width 6 leaves 3 columns before the "...", and each ideograph is 2 wide, so
             // only the first fits — "兩" + "..." is 5 columns, padded back out to 6.
-            assert_eq!(fit_width("兩數之和", 6), "兩... ");
+            assert_eq!(fit_width("兩數之和", 6, "..."), "兩... ");
         }
     }
 }

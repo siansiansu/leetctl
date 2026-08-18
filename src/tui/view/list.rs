@@ -4,7 +4,6 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
-use unicode_width::UnicodeWidthStr;
 
 use super::{difficulty_color, hints_line, pad1};
 use crate::cache::models::Problem;
@@ -267,27 +266,14 @@ fn display_level(level: i32) -> &'static str {
     crate::helper::Difficulty::from_level(level).map_or("?", |d| d.as_str())
 }
 
+/// The mark a truncated name ends in. One column, unlike the plain lists' `...`, because a table
+/// row here is already fighting the terminal for width.
+const ELLIPSIS: &str = "…";
+
 /// Pads or truncates to exactly `width` display columns, so the columns after it line up whatever
 /// the name contains.
 fn fit(text: &str, width: u16) -> String {
-    let width = width as usize;
-    if UnicodeWidthStr::width(text) <= width {
-        return format!("{text}{}", " ".repeat(width - UnicodeWidthStr::width(text)));
-    }
-
-    let mut out = String::new();
-    let mut used = 0;
-    for c in text.chars() {
-        let char_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + char_width > width.saturating_sub(1) {
-            break;
-        }
-        out.push(c);
-        used += char_width;
-    }
-    out.push('…');
-
-    format!("{out}{}", " ".repeat(width - used - 1))
+    crate::helper::fit_width(text, width as usize, ELLIPSIS)
 }
 
 /// Gap between two stat groups.
@@ -392,6 +378,9 @@ mod tests {
     #[test]
     fn fit_accounts_for_wide_characters() {
         // Each CJK character is two columns wide, so only two fit before the ellipsis.
-        assert_eq!(UnicodeWidthStr::width(fit("兩數之和", 5).as_str()), 5);
+        assert_eq!(
+            unicode_width::UnicodeWidthStr::width(fit("兩數之和", 5).as_str()),
+            5
+        );
     }
 }

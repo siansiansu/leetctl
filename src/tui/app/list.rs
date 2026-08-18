@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn r_narrows_to_the_review_deck_and_back() {
         let mut m = model_with(4);
-        m.due = vec![2, 3];
+        m.due = [2, 3].into();
 
         update(&mut m, key(KeyCode::Char('r')));
         assert!(m.due_only);
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn esc_drops_the_due_filter_with_the_rest() {
         let mut m = model_with(4);
-        m.due = vec![2];
+        m.due = [2].into();
         update(&mut m, key(KeyCode::Char('r')));
         assert!(m.has_filters());
 

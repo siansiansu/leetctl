@@ -24,6 +24,7 @@ you solve. Grade by hand when that is too generous. See docs/srs.md for the sche
 const DUE_WIDTH: i32 = 8;
 const NAME_WIDTH: usize = 44;
 const LEVEL_WIDTH: usize = 7;
+const ELLIPSIS: &str = "...";
 
 /// Review command arguments
 #[derive(Args)]
@@ -177,18 +178,18 @@ fn grade_problem(cache: &Cache, id: i32, grade: Grade, today: Day) -> Result<(),
 
 fn add(cache: &Cache, id: i32, today: Day) -> Result<(), Error> {
     let problem = cache.get_problem(id)?;
-    let already_enrolled = cache.review_card(id)?.is_some();
-    let card = cache.enroll_review(id, today)?;
 
-    if already_enrolled {
-        println!(
+    match cache.review_card(id)? {
+        Some(card) => println!(
             "  [{}] {} is already in the deck — due {}",
             id,
             problem.name.bold(),
             card.due_label(today)
-        );
-    } else {
-        println!("  [{}] {} added, due today", id, problem.name.bold());
+        ),
+        None => {
+            cache.enroll_review(id, today)?;
+            println!("  [{}] {} added, due today", id, problem.name.bold());
+        }
     }
 
     Ok(())
@@ -256,8 +257,8 @@ fn header() -> String {
         "{} {:>4} {} {} {}  {}",
         "Due".to_string().digit(DUE_WIDTH),
         "Id",
-        fit_width("Problem", NAME_WIDTH),
-        fit_width("Level", LEVEL_WIDTH),
+        fit_width("Problem", NAME_WIDTH, ELLIPSIS),
+        fit_width("Level", LEVEL_WIDTH, ELLIPSIS),
         "Ease",
         "Reps",
     );
@@ -285,31 +286,27 @@ fn row(card: &ReviewCard, problem: Option<&Problem>, today: Day) -> String {
         "  {} {:>4} {} {} {:.2}  {:>4}",
         due,
         card.fid,
-        fit_width(name, NAME_WIDTH),
-        fit_width(level, LEVEL_WIDTH),
+        fit_width(name, NAME_WIDTH, ELLIPSIS),
+        fit_width(level, LEVEL_WIDTH, ELLIPSIS),
         card.ease,
         card.repetitions,
     )
 }
 
+/// `colored` writes escapes only when it thinks a terminal is listening; under `cargo test` it
+/// does not, so these compare plain text.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cache::models::fixture;
     use crate::srs::Schedule;
 
-    /// `colored` writes escapes only when it thinks a terminal is listening; under `cargo test` it
-    /// does not, so these compare plain text.
-    fn rendered(card: &ReviewCard, problem: Option<&Problem>, today: Day) -> String {
-        row(card, problem, today)
-    }
-
     #[test]
     fn a_row_carries_the_due_label_id_name_and_schedule() {
         let problem = fixture(1, 1, "Two Sum");
         let card = ReviewCard::new(1, Schedule::default().next(Grade::Good), 100);
 
-        let line = rendered(&card, Some(&problem), 100);
+        let line = row(&card, Some(&problem), 100);
 
         assert!(line.contains("in 4d"), "{line}");
         assert!(line.contains("Two Sum"), "{line}");
@@ -321,7 +318,7 @@ mod tests {
     fn a_card_whose_problem_is_not_cached_still_renders() {
         let card = ReviewCard::new(9999, Schedule::default(), 100);
 
-        let line = rendered(&card, None, 100);
+        let line = row(&card, None, 100);
 
         assert!(line.contains("9999"), "{line}");
         assert!(line.contains("not in the problem cache"), "{line}");
@@ -331,6 +328,6 @@ mod tests {
     fn an_overdue_card_says_how_late_it_is() {
         let card = ReviewCard::new(1, Schedule::default(), 98);
 
-        assert!(rendered(&card, None, 100).contains("2d late"));
+        assert!(row(&card, None, 100).contains("2d late"));
     }
 }

@@ -47,17 +47,13 @@ impl Cache {
     }
 
     /// Put a problem in the deck, due immediately. A problem already in it keeps its schedule.
-    pub fn enroll_review(&self, problem_fid: i32, today: Day) -> Result<ReviewCard, Error> {
-        if let Some(card) = self.review_card(problem_fid)? {
-            return Ok(card);
-        }
-
+    pub fn enroll_review(&self, problem_fid: i32, today: Day) -> Result<(), Error> {
         let card = ReviewCard::new(problem_fid, Schedule::default(), today);
-        diesel::insert_into(reviews)
+        diesel::insert_or_ignore_into(reviews)
             .values(&card)
             .execute(&mut self.conn()?)?;
 
-        Ok(card)
+        Ok(())
     }
 
     /// Grade a problem, enrolling it first if it is new, and return where that leaves it.
@@ -72,12 +68,7 @@ impl Cache {
             .map(|card| card.schedule())
             .unwrap_or_default();
 
-        let card = ReviewCard::new(problem_fid, current.next(grade), today);
-        diesel::replace_into(reviews)
-            .values(&card)
-            .execute(&mut self.conn()?)?;
-
-        Ok(card)
+        self.write_schedule(problem_fid, current.next(grade), today)
     }
 
     /// Grade a problem only if it is already in the deck.
@@ -91,10 +82,27 @@ impl Cache {
         grade: Grade,
         today: Day,
     ) -> Result<Option<ReviewCard>, Error> {
-        match self.review_card(problem_fid)? {
-            None => Ok(None),
-            Some(_) => self.grade_review(problem_fid, grade, today).map(Some),
-        }
+        let Some(card) = self.review_card(problem_fid)? else {
+            return Ok(None);
+        };
+
+        self.write_schedule(problem_fid, card.schedule().next(grade), today)
+            .map(Some)
+    }
+
+    /// Store a schedule as the card for `problem_fid`, replacing whatever was there.
+    fn write_schedule(
+        &self,
+        problem_fid: i32,
+        schedule: Schedule,
+        today: Day,
+    ) -> Result<ReviewCard, Error> {
+        let card = ReviewCard::new(problem_fid, schedule, today);
+        diesel::replace_into(reviews)
+            .values(&card)
+            .execute(&mut self.conn()?)?;
+
+        Ok(card)
     }
 
     /// Take a problem out of the deck. `false` when it was not in it.

@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn a_due_problem_is_dotted_in_the_table_and_counted_on_the_footer() {
         let mut m = listed_model();
-        m.due = vec![4];
+        m.due = [4].into();
         m.apply_filters();
 
         let screen = render(&m, 100, 20);
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn narrowing_to_the_deck_says_so_in_the_header() {
         let mut m = listed_model();
-        m.due = vec![4];
+        m.due = [4].into();
         m.due_only = true;
         m.apply_filters();
 

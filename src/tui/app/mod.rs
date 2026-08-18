@@ -3,7 +3,7 @@ mod detail;
 mod list;
 mod run;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Sender;
@@ -288,8 +288,9 @@ pub struct Model {
     /// Only problems that are neither solved nor attempted.
     pub(crate) unsolved_only: bool,
     /// Every frontend id the review deck currently calls due, whether or not the list is narrowed
-    /// to them: the badge and the footer count need the whole set.
-    pub(crate) due: Vec<i32>,
+    /// to them: the badge and the footer count need the whole set. A set rather than a list because
+    /// the footer counts it against the whole table on every draw.
+    pub(crate) due: HashSet<i32>,
     /// Only problems the deck says are due.
     pub(crate) due_only: bool,
     /// The tag whose members are being shown, once its ids have arrived.
@@ -348,7 +349,7 @@ impl Model {
             filters: opts.filters,
             search: String::new(),
             unsolved_only: false,
-            due: Vec::new(),
+            due: HashSet::new(),
             due_only: false,
             tag: None,
             prompt: None,
@@ -482,7 +483,7 @@ impl Model {
             }
             Msg::DueLoaded(res) => match res {
                 Ok(fids) => {
-                    self.due = fids;
+                    self.due = fids.into_iter().collect();
                     // The deck is one of the filters, so a fresh answer re-derives the table.
                     self.apply_filters();
                 }
@@ -535,7 +536,7 @@ impl Model {
         // `u` is the only thing that sets a query, so deriving it here keeps one source of truth.
         self.filters.query = self.unsolved_only.then(|| "D".to_string());
         // Same for `r`: the deck is held whole in `due`, and the filter is a view of it.
-        self.filters.due_fids = self.due_only.then(|| self.due.clone());
+        self.filters.due_fids = self.due_only.then(|| self.due.iter().copied().collect());
 
         let mut ps = self.all.clone();
         match crate::filters::apply(&mut ps, &self.filters) {
@@ -921,7 +922,7 @@ pub(crate) fn test_model() -> Model {
         filters: ProblemFilters::default(),
         search: String::new(),
         unsolved_only: false,
-        due: Vec::new(),
+        due: HashSet::new(),
         due_only: false,
         tag: None,
         prompt: None,

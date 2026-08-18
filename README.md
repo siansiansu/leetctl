@@ -98,6 +98,23 @@ Naming a problem outright — `leetctl pick 1` or `leetctl pick --daily` — is 
 drawing one at random, so it cannot be combined with filters; leetctl rejects the combination
 rather than accepting filters it would then ignore.
 
+### Spaced repetition
+
+Solving a problem once teaches you the trick; solving it again three weeks later is what keeps it.
+An accepted submission puts the problem in a review deck and schedules it, and `leetctl review`
+tells you what has come back around.
+
+```sh
+leetctl review                 # what is due today
+leetctl review next            # open the most overdue one
+leetctl review grade 1 hard    # "I got it, but it hurt"
+leetctl list --due -S blind75  # due problems from the Blind 75
+```
+
+The schedule is SM-2, the algorithm Anki grew out of: four grades, an ease per problem, and
+intervals that stretch as long as you keep recalling it. In the TUI, `r` narrows the table to what
+is due and `1`-`4` grade the problem on screen. Full reference: [Spaced repetition](./docs/srs.md).
+
 ### Problem sets
 
 ```sh
