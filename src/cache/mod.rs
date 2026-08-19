@@ -25,13 +25,35 @@ use std::time::{Duration, Instant};
 const VERIFY_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const VERIFY_POLL_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// True when a response is Cloudflare's throttle interstitial rather than an API answer.
-/// Recognising it keeps the "your cookies expired" message for actual auth failures — the
-/// challenge arrives with perfectly valid cookies.
-fn is_throttled(http_status: reqwest::StatusCode, body: &str) -> bool {
-    http_status == reqwest::StatusCode::TOO_MANY_REQUESTS
-        || body.contains("cf_chl_opt")
-        || body.contains("<title>Just a moment...</title>")
+/// Why LeetCode answered with something other than an API result.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Block {
+    /// HTTP 429 — too many requests from this machine.
+    RateLimit,
+    /// Cloudflare's bot interstitial. It arrives with perfectly valid cookies, so telling it
+    /// apart keeps the "your cookies expired" message for actual auth failures, and telling
+    /// it apart from a 429 keeps the advice honest: the two have different remedies.
+    Challenge,
+}
+
+impl From<Block> for Error {
+    fn from(block: Block) -> Self {
+        match block {
+            Block::RateLimit => Error::Throttled,
+            Block::Challenge => Error::CloudflareChallenge,
+        }
+    }
+}
+
+/// Classify a response that may be a block page rather than an API answer.
+fn detect_block(http_status: reqwest::StatusCode, body: &str) -> Option<Block> {
+    if http_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Some(Block::RateLimit);
+    }
+    if body.contains("cf_chl_opt") || body.contains("<title>Just a moment...</title>") {
+        return Some(Block::Challenge);
+    }
+    None
 }
 
 /// sqlite connection
@@ -94,8 +116,8 @@ impl Cache {
     async fn resp_to_json<T: DeserializeOwned>(&self, resp: Response) -> Result<T, Error> {
         let http_status = resp.status();
         let text = resp.text().await?;
-        if is_throttled(http_status, &text) {
-            return Err(Error::Throttled);
+        if let Some(block) = detect_block(http_status, &text) {
+            return Err(block.into());
         }
 
         match serde_json::from_str(&text) {
@@ -408,8 +430,8 @@ impl Cache {
             .await?;
         let http_status = resp.status();
         let text = resp.text().await?;
-        if is_throttled(http_status, &text) {
-            return Err(Error::Throttled);
+        if let Some(block) = detect_block(http_status, &text) {
+            return Err(block.into());
         }
 
         let run_res: RunCode = serde_json::from_str(&text).map_err(|e| {
@@ -466,7 +488,7 @@ impl Cache {
 
 #[cfg(test)]
 mod tests {
-    use super::is_throttled;
+    use super::{Block, detect_block};
     use reqwest::StatusCode;
 
     const CHALLENGE_PAGE: &str = "<!DOCTYPE html><html lang=\"en-US\"><head>\
@@ -474,33 +496,39 @@ mod tests {
         (function(){window._cf_chl_opt = {cRay: 'a2d10820ce8588ff'};}());</script></body></html>";
 
     #[test]
-    fn is_throttled_detects_cloudflare_challenge_page() {
-        assert!(is_throttled(StatusCode::OK, CHALLENGE_PAGE));
+    fn detect_block_reads_a_cloudflare_challenge_page_as_a_challenge() {
+        assert_eq!(
+            detect_block(StatusCode::OK, CHALLENGE_PAGE),
+            Some(Block::Challenge)
+        );
     }
 
     #[test]
-    fn is_throttled_detects_rate_limit_status() {
-        assert!(is_throttled(
-            StatusCode::TOO_MANY_REQUESTS,
-            "<html>slow down</html>"
-        ));
+    fn detect_block_reads_429_as_a_rate_limit() {
+        assert_eq!(
+            detect_block(StatusCode::TOO_MANY_REQUESTS, "<html>slow down</html>"),
+            Some(Block::RateLimit)
+        );
     }
 
     #[test]
-    fn is_throttled_passes_judge_json() {
-        assert!(!is_throttled(
-            StatusCode::OK,
-            r#"{"state":"SUCCESS","status_code":10}"#
-        ));
+    fn detect_block_passes_judge_json() {
+        assert_eq!(
+            detect_block(StatusCode::OK, r#"{"state":"SUCCESS","status_code":10}"#),
+            None
+        );
     }
 
     #[test]
-    fn is_throttled_passes_non_cloudflare_html() {
+    fn detect_block_passes_non_cloudflare_html() {
         // A logged-out request gets LeetCode's own login page; that is a cookie problem,
-        // not a throttle, and must keep reaching the `CookieError` branch.
-        assert!(!is_throttled(
-            StatusCode::FORBIDDEN,
-            "<!DOCTYPE html><html><head><title>Sign In</title></head></html>"
-        ));
+        // not a block, and must keep reaching the `CookieError` branch.
+        assert_eq!(
+            detect_block(
+                StatusCode::FORBIDDEN,
+                "<!DOCTYPE html><html><head><title>Sign In</title></head></html>"
+            ),
+            None
+        );
     }
 }

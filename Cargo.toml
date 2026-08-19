@@ -51,7 +51,9 @@ features = ["sqlite"]
 [dependencies.reqwest]
 version = "0.13.4"
 default-features = false
-features = ["gzip", "json", "native-tls"]
+# `http2` matters beyond speed: Cloudflare scores an HTTP/1.1 request that claims to be
+# Chrome as a bot, and LeetCode guards the judge endpoints with a managed challenge.
+features = ["gzip", "http2", "json", "native-tls"]
 
 [features]
 pym = ["pyo3"]

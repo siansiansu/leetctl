@@ -38,6 +38,9 @@ impl LeetCode {
         } else {
             (conf.cookies.clone().to_string(), conf.cookies.clone().csrf)
         };
+        // `Accept` and `Accept-Language` ride along for the same reason as the user agent
+        // below: Cloudflare scores a request that no browser would ever send as a bot and
+        // answers it with a challenge page instead of a result.
         let default_headers = LeetCode::headers(
             HeaderMap::new(),
             vec![
@@ -45,11 +48,14 @@ impl LeetCode {
                 ("x-csrftoken", &csrf),
                 ("x-requested-with", "XMLHttpRequest"),
                 ("Origin", &conf.sys.urls.base),
+                ("Accept", "*/*"),
+                ("Accept-Language", "en-US,en;q=0.9"),
             ],
         )?;
 
         let client = ClientBuilder::new()
             .gzip(true)
+            .user_agent(super::chrome::user_agent())
             .connect_timeout(Duration::from_secs(30))
             .build()?;
 
@@ -277,7 +283,10 @@ impl LeetCode {
 mod req {
     use super::LeetCode;
     use crate::err::Error;
-    use reqwest::{Client, Response, header::HeaderMap};
+    use reqwest::{
+        Client, Response,
+        header::{HeaderMap, ORIGIN},
+    };
     use std::collections::HashMap;
 
     /// Standardize json format
@@ -307,13 +316,18 @@ mod req {
                 info!("{}", self.name);
             }
             let url = self.url.to_owned();
-            let headers = LeetCode::headers(
+            let mut headers = LeetCode::headers(
                 self.default_headers,
                 vec![("Referer", &self.refer.unwrap_or(url))],
             )?;
 
             let req = match self.mode {
-                Mode::Get => client.get(&self.url),
+                Mode::Get => {
+                    // Browsers attach `Origin` to POSTs, not to plain GETs. Sending it anyway
+                    // is one more way the request reads as scripted to Cloudflare.
+                    headers.remove(ORIGIN);
+                    client.get(&self.url)
+                }
                 Mode::Post => client.post(&self.url).json(&self.json),
             };
 

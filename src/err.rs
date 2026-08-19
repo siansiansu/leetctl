@@ -80,12 +80,18 @@ pub enum Error {
     )]
     NoProblemsMatch(String),
     #[error(
-        "LeetCode is throttling this machine: it answered with a Cloudflare challenge \
-         instead of a result. Wait a minute before retrying — loading {} in Chrome and \
-         clearing the challenge there also unblocks it.",
-        "https://leetcode.com".underline()
+        "LeetCode is rate-limiting this machine: it answered HTTP 429 instead of a result. \
+         Wait a minute before retrying."
     )]
     Throttled,
+    #[error(
+        "Cloudflare answered with a bot challenge instead of a result. This is not a rate \
+         limit — the request itself scored as automated. Open {} in Chrome, let the challenge \
+         clear, and retry: leetctl forwards Chrome's `cf_clearance` cookie, and it is only \
+         good for as long as Chrome's own is.",
+        "https://leetcode.com".underline()
+    )]
+    CloudflareChallenge,
     #[error(
         "The judge never reported a result for submission {rid}. It may still be running — \
          check it at {}",

@@ -1,9 +1,9 @@
 //! Read and decrypt LeetCode cookies straight from Chrome's cookie store.
 //!
-//! Replaces the archived `rookie` crate. leetctl only needs two cookies
-//! (`LEETCODE_SESSION`, `csrftoken`) from one browser, so this reuses the SQLite
-//! stack already pulled in by `diesel` to read the cookie DB and implements just
-//! Chrome's value decryption — no second SQLite client and no dbus linkage.
+//! Replaces the archived `rookie` crate. leetctl needs a handful of cookies from one
+//! browser, so this reuses the SQLite stack already pulled in by `diesel` to read the
+//! cookie DB and implements just Chrome's value decryption — no second SQLite client and
+//! no dbus linkage. The same Chrome install also names the `User-Agent` to present.
 use crate::{Error, Result};
 use cbc::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 use diesel::{prelude::*, sql_query, sql_types, sqlite::SqliteConnection};
@@ -11,11 +11,31 @@ use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 
+/// Cookies worth forwarding to LeetCode. The first two are the identity; the rest are
+/// Cloudflare's proof that this machine already passed a bot check. Dropping the Cloudflare
+/// ones is what makes an *idle* session fail: `__cf_bm` lives about half an hour, and once it
+/// lapses the next request is scored from scratch and gets a challenge page instead of a
+/// judge result.
+const FORWARDED_COOKIES: [&str; 5] = [
+    "csrftoken",
+    "LEETCODE_SESSION",
+    "cf_clearance",
+    "__cf_bm",
+    "_cfuvid",
+];
+
+/// Chrome major version to claim when the local Chrome cannot be interrogated. Only a
+/// fallback: a stale version is itself a bot signal, so detection is always tried first.
+const FALLBACK_CHROME_MAJOR: u32 = 151;
+
 /// Resolved LeetCode identity.
 #[derive(Debug)]
 pub struct Ident {
     pub csrf: String,
     session: String,
+    /// Cloudflare clearance cookies as `(name, value)`, when Chrome had them. Empty is not
+    /// an error — a machine that never saw a challenge has none.
+    cloudflare: Vec<(String, String)>,
 }
 
 impl Display for Ident {
@@ -24,7 +44,11 @@ impl Display for Ident {
             f,
             "LEETCODE_SESSION={};csrftoken={};",
             self.session, self.csrf
-        )
+        )?;
+        for (name, value) in &self.cloudflare {
+            write!(f, "{name}={value};")?;
+        }
+        Ok(())
     }
 }
 
@@ -35,20 +59,45 @@ pub fn cookies() -> Result<Ident> {
         return Ok(Ident {
             csrf: ccfg.csrf,
             session: ccfg.session,
+            cloudflare: Vec::new(),
         });
     }
 
-    let jar = chrome_cookies(&ccfg.site.to_string())?;
+    let mut jar = chrome_cookies(&ccfg.site.to_string())?;
+    let csrf = jar.remove("csrftoken").ok_or(Error::ChromeNotLogin)?;
+    let session = jar
+        .remove("LEETCODE_SESSION")
+        .ok_or(Error::ChromeNotLogin)?;
     Ok(Ident {
-        csrf: jar
-            .get("csrftoken")
-            .ok_or(Error::ChromeNotLogin)?
-            .to_string(),
-        session: jar
-            .get("LEETCODE_SESSION")
-            .ok_or(Error::ChromeNotLogin)?
-            .to_string(),
+        csrf,
+        session,
+        cloudflare: jar.into_iter().collect(),
     })
+}
+
+/// The `User-Agent` to present to LeetCode.
+///
+/// Cloudflare scores a request that sends no `User-Agent` at all as a bot and answers with a
+/// challenge page, and it ties `cf_clearance` to the agent string that earned it — so this
+/// has to name the same Chrome whose cookies [`cookies`] reads.
+pub fn user_agent() -> String {
+    let major = chrome_major_version().unwrap_or(FALLBACK_CHROME_MAJOR);
+    format!(
+        "Mozilla/5.0 ({CHROME_PLATFORM}) AppleWebKit/537.36 (KHTML, like Gecko) \
+         Chrome/{major}.0.0.0 Safari/537.36"
+    )
+}
+
+/// Pull the major out of `151.0.7922.169` or `Google Chrome 151.0.7922.169`.
+fn major_from_version(output: &str) -> Option<u32> {
+    output
+        .split_whitespace()
+        .find_map(|word| word.split('.').next()?.parse().ok())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn chrome_major_version() -> Option<u32> {
+    None
 }
 
 #[derive(QueryableByName)]
@@ -79,7 +128,7 @@ fn chrome_cookies(domain: &str) -> Result<HashMap<String, String>> {
     let key = encryption_key()?;
     let mut jar = HashMap::new();
     for row in rows {
-        if (row.name == "csrftoken" || row.name == "LEETCODE_SESSION")
+        if FORWARDED_COOKIES.contains(&row.name.as_str())
             && let Ok(value) = decrypt(&row.encrypted_value, &key)
         {
             jar.insert(row.name, value);
@@ -121,6 +170,23 @@ fn derive(password: &[u8], iterations: u32) -> Vec<u8> {
     pbkdf2::pbkdf2_hmac_array::<sha1::Sha1, 16>(password, b"saltysalt", iterations).to_vec()
 }
 
+/// Platform token of the `User-Agent` string, matching what Chrome sends on this OS.
+#[cfg(target_os = "macos")]
+const CHROME_PLATFORM: &str = "Macintosh; Intel Mac OS X 10_15_7";
+
+#[cfg(target_os = "macos")]
+fn chrome_major_version() -> Option<u32> {
+    let out = std::process::Command::new("defaults")
+        .args([
+            "read",
+            "/Applications/Google Chrome.app/Contents/Info",
+            "CFBundleShortVersionString",
+        ])
+        .output()
+        .ok()?;
+    major_from_version(&String::from_utf8_lossy(&out.stdout))
+}
+
 #[cfg(target_os = "macos")]
 fn cookie_db_path() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join("Library/Application Support/Google/Chrome/Default/Cookies"))
@@ -147,6 +213,20 @@ fn encryption_key() -> Result<Vec<u8>> {
 }
 
 #[cfg(target_os = "linux")]
+const CHROME_PLATFORM: &str = "X11; Linux x86_64";
+
+#[cfg(target_os = "linux")]
+fn chrome_major_version() -> Option<u32> {
+    ["google-chrome", "chromium"].iter().find_map(|binary| {
+        let out = std::process::Command::new(binary)
+            .arg("--version")
+            .output()
+            .ok()?;
+        major_from_version(&String::from_utf8_lossy(&out.stdout))
+    })
+}
+
+#[cfg(target_os = "linux")]
 fn cookie_db_path() -> Option<PathBuf> {
     let cfg = dirs::config_dir()?;
     ["google-chrome", "chromium"]
@@ -169,6 +249,9 @@ fn encryption_key() -> Result<Vec<u8>> {
 }
 
 #[cfg(target_os = "windows")]
+const CHROME_PLATFORM: &str = "Windows NT 10.0; Win64; x64";
+
+#[cfg(target_os = "windows")]
 fn cookie_db_path() -> Option<PathBuf> {
     Some(dirs::data_local_dir()?.join("Google/Chrome/User Data/Default/Network/Cookies"))
 }
@@ -184,6 +267,9 @@ fn encryption_key() -> Result<Vec<u8>> {
 // for headless installations stub functions are defined
 // can add to stubs with cfg(any(...))
 #[cfg(target_os = "android")]
+const CHROME_PLATFORM: &str = "Linux; Android 10; K";
+
+#[cfg(target_os = "android")]
 fn cookie_db_path() -> Option<PathBuf> {
     None
 }
@@ -191,4 +277,27 @@ fn cookie_db_path() -> Option<PathBuf> {
 #[cfg(target_os = "android")]
 fn encryption_key() -> Result<Vec<u8>> {
     Err(Error::ChromeNotLogin)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::major_from_version;
+
+    #[test]
+    fn major_from_version_reads_a_bare_version() {
+        assert_eq!(major_from_version("151.0.7922.169\n"), Some(151));
+    }
+
+    #[test]
+    fn major_from_version_skips_the_product_name() {
+        assert_eq!(
+            major_from_version("Google Chrome 151.0.7922.169\n"),
+            Some(151)
+        );
+    }
+
+    #[test]
+    fn major_from_version_rejects_output_without_a_version() {
+        assert_eq!(major_from_version("command not found"), None);
+    }
 }
