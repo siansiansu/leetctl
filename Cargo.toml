@@ -4,7 +4,7 @@ path = "src/bin/leetctl.rs"
 
 [package]
 name = "leetctl"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Bîn-hiân <minsiansu@gmail.com>"]
 edition = "2024"
 description = "LeetCode command-line interface in Rust, with curated problem sets and filtered random picking."
