@@ -3,18 +3,18 @@ use crate::{
     Result,
     config::{self, Config},
 };
-use reqwest::{
-    Client, ClientBuilder, Response,
+use std::{collections::HashMap, str::FromStr, time::Duration};
+use wreq::{
+    Client, Response,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
-use std::{collections::HashMap, str::FromStr, time::Duration};
+use wreq_util::Emulation;
 
 /// LeetCode API set
 #[derive(Clone)]
 pub struct LeetCode {
     pub conf: Config,
     client: Client,
-    default_headers: HeaderMap,
 }
 
 impl LeetCode {
@@ -38,32 +38,31 @@ impl LeetCode {
         } else {
             (conf.cookies.clone().to_string(), conf.cookies.clone().csrf)
         };
-        // `Accept` and `Accept-Language` ride along for the same reason as the user agent
-        // below: Cloudflare scores a request that no browser would ever send as a bot and
-        // answers it with a challenge page instead of a result.
         let default_headers = LeetCode::headers(
             HeaderMap::new(),
             vec![
                 ("Cookie", &cookie),
                 ("x-csrftoken", &csrf),
                 ("x-requested-with", "XMLHttpRequest"),
-                ("Origin", &conf.sys.urls.base),
-                ("Accept", "*/*"),
-                ("Accept-Language", "en-US,en;q=0.9"),
             ],
         )?;
 
-        let client = ClientBuilder::new()
-            .gzip(true)
+        // The emulation profile supplies the TLS and HTTP/2 fingerprint plus the header set a
+        // real Chrome sends; the user agent is then pinned to the Chrome actually installed,
+        // because Cloudflare ties `cf_clearance` to the agent string that earned it.
+        let client = Client::builder()
+            .emulation(Emulation::Chrome137)
             .user_agent(super::chrome::user_agent())
+            .default_headers(default_headers)
+            .gzip(true)
             .connect_timeout(Duration::from_secs(30))
+            // Without a ceiling on the whole exchange a stalled response hangs the command
+            // forever: `poll_verify` bounds how long it keeps polling, not how long any one
+            // request may take. Generous enough for the full problem-catalogue download.
+            .timeout(Duration::from_secs(60))
             .build()?;
 
-        Ok(LeetCode {
-            conf,
-            client,
-            default_headers,
-        })
+        Ok(LeetCode { conf, client })
     }
 
     /// Get category problems
@@ -72,7 +71,6 @@ impl LeetCode {
         let url = &self.conf.sys.urls.problems(category);
 
         Req {
-            default_headers: self.default_headers,
             refer: None,
             info: false,
             json: None,
@@ -105,7 +103,6 @@ impl LeetCode {
         );
 
         Req {
-            default_headers: self.default_headers,
             refer: Some(self.conf.sys.urls.tag(slug)),
             info: false,
             json: Some(json),
@@ -134,7 +131,6 @@ impl LeetCode {
         );
 
         Req {
-            default_headers: self.default_headers,
             refer: None,
             info: false,
             json: Some(json),
@@ -188,7 +184,6 @@ impl LeetCode {
         }
 
         Req {
-            default_headers: self.default_headers,
             refer: None,
             info: false,
             json: Some(json),
@@ -232,7 +227,6 @@ impl LeetCode {
         json.insert("operationName", "getQuestionDetail".to_string());
 
         Req {
-            default_headers: self.default_headers,
             refer: Some(refer),
             info: false,
             json: Some(json),
@@ -248,7 +242,6 @@ impl LeetCode {
     pub async fn run_code(self, j: Json, url: String, refer: String) -> Result<Response> {
         info!("Sending code to judge...");
         Req {
-            default_headers: self.default_headers,
             refer: Some(refer),
             info: false,
             json: Some(j),
@@ -266,7 +259,6 @@ impl LeetCode {
         let url = self.conf.sys.urls.verify(&id);
 
         Req {
-            default_headers: self.default_headers,
             refer: None,
             info: false,
             json: None,
@@ -281,13 +273,9 @@ impl LeetCode {
 
 /// Sub-module for leetcode, simplify requests
 mod req {
-    use super::LeetCode;
     use crate::err::Error;
-    use reqwest::{
-        Client, Response,
-        header::{HeaderMap, ORIGIN},
-    };
     use std::collections::HashMap;
+    use wreq::{Client, Response, Uri};
 
     /// Standardize json format
     pub type Json = HashMap<&'static str, String>;
@@ -300,13 +288,23 @@ mod req {
 
     /// LeetCode request prototype
     pub struct Req {
-        pub default_headers: HeaderMap,
         pub refer: Option<String>,
         pub json: Option<Json>,
         pub info: bool,
         pub mode: Mode,
         pub name: &'static str,
         pub url: String,
+    }
+
+    /// The `Origin` a browser would send for a request to `url`: its scheme and authority.
+    fn origin_of(url: &str) -> Result<String, Error> {
+        let uri: Uri = url
+            .parse()
+            .map_err(|e| anyhow::anyhow!("parse {url}: {e}"))?;
+        match (uri.scheme_str(), uri.authority()) {
+            (Some(scheme), Some(authority)) => Ok(format!("{scheme}://{authority}")),
+            _ => Err(anyhow::anyhow!("{url} has no origin").into()),
+        }
     }
 
     impl Req {
@@ -316,22 +314,19 @@ mod req {
                 info!("{}", self.name);
             }
             let url = self.url.to_owned();
-            let mut headers = LeetCode::headers(
-                self.default_headers,
-                vec![("Referer", &self.refer.unwrap_or(url))],
-            )?;
+            let referer = self.refer.unwrap_or(url);
 
+            // Browsers attach `Origin` to POSTs, not to plain GETs. Sending it on a GET is one
+            // more way the request reads as scripted to Cloudflare.
             let req = match self.mode {
-                Mode::Get => {
-                    // Browsers attach `Origin` to POSTs, not to plain GETs. Sending it anyway
-                    // is one more way the request reads as scripted to Cloudflare.
-                    headers.remove(ORIGIN);
-                    client.get(&self.url)
-                }
-                Mode::Post => client.post(&self.url).json(&self.json),
+                Mode::Get => client.get(&self.url),
+                Mode::Post => client
+                    .post(&self.url)
+                    .header("Origin", origin_of(&self.url)?)
+                    .json(&self.json),
             };
 
-            Ok(req.headers(headers).send().await?)
+            Ok(req.header("Referer", referer).send().await?)
         }
     }
 }

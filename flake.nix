@@ -42,6 +42,8 @@
 
         nativeBuildInputs = with pkgs; [
           pkg-config
+          # BoringSSL is built from source by the HTTP client's TLS backend.
+          cmake
         ];
 
         darwinBuildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [

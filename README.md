@@ -26,8 +26,10 @@ No network call and no LeetCode Premium subscription is needed to filter by a se
 ## Install
 
 ```sh
-# Linux build deps: system SQLite + OpenSSL headers + pkg-config
-#   (Debian/Ubuntu: libsqlite3-dev libssl-dev pkg-config). macOS ships both.
+# Build deps: system SQLite, plus cmake and a C++ toolchain — the HTTP client
+#   builds BoringSSL from source to reproduce a browser's TLS fingerprint.
+#   Debian/Ubuntu: libsqlite3-dev pkg-config cmake build-essential
+#   macOS: brew install cmake (SQLite and the toolchain ship with Xcode)
 cargo install leetctl
 ```
 

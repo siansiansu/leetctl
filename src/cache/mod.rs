@@ -11,11 +11,11 @@ use crate::helper::test_cases_path;
 use crate::{config::Config, err::Error, plugins::LeetCode};
 use anyhow::anyhow;
 use diesel::prelude::*;
-use reqwest::Response;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use wreq::Response;
 
 /// How long to wait between two polls of the judge, and how long to keep polling before
 /// giving up. LeetCode budgets requests per machine and answers anything over the budget
@@ -46,8 +46,8 @@ impl From<Block> for Error {
 }
 
 /// Classify a response that may be a block page rather than an API answer.
-fn detect_block(http_status: reqwest::StatusCode, body: &str) -> Option<Block> {
-    if http_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+fn detect_block(http_status: wreq::StatusCode, body: &str) -> Option<Block> {
+    if http_status == wreq::StatusCode::TOO_MANY_REQUESTS {
         return Some(Block::RateLimit);
     }
     if body.contains("cf_chl_opt") || body.contains("<title>Just a moment...</title>") {
@@ -489,7 +489,7 @@ impl Cache {
 #[cfg(test)]
 mod tests {
     use super::{Block, detect_block};
-    use reqwest::StatusCode;
+    use wreq::StatusCode;
 
     const CHALLENGE_PAGE: &str = "<!DOCTYPE html><html lang=\"en-US\"><head>\
         <title>Just a moment...</title></head><body><script>\

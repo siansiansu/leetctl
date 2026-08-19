@@ -48,12 +48,16 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 version = "2.3.12"
 features = ["sqlite"]
 
-[dependencies.reqwest]
-version = "0.13.4"
-default-features = false
-# `http2` matters beyond speed: Cloudflare scores an HTTP/1.1 request that claims to be
-# Chrome as a bot, and LeetCode guards the judge endpoints with a managed challenge.
-features = ["gzip", "http2", "json", "native-tls"]
+# LeetCode fronts the judge endpoints with Cloudflare, which challenges a request whose TLS
+# and HTTP/2 fingerprint does not belong to a real browser. `wreq` is reqwest's API over a
+# stack that can reproduce Chrome's; `wreq-util` carries the profiles. Verified by hand:
+# reqwest was challenged where curl, with byte-identical headers and cookies, was not.
+[dependencies.wreq]
+version = "6.0.0-rc.31"
+features = ["gzip", "json"]
+
+[dependencies.wreq-util]
+version = "3.0.0-rc.14"
 
 [features]
 pym = ["pyo3"]

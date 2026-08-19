@@ -47,11 +47,11 @@ export LEETCODE_SITE='leetcode.com'   # or 'leetcode.cn'
 
 LeetCode fronts the judge endpoints with Cloudflare, which scores every request and answers the ones that look automated with a challenge page instead of a result. leetctl gets past the check by looking like the browser it borrows cookies from:
 
-- it speaks **HTTP/2**, as every current browser does — an HTTP/1.1 request claiming to be Chrome is a contradiction Cloudflare scores against;
+- it reproduces Chrome's **TLS and HTTP/2 fingerprint**, down to the extension order and the HTTP/2 settings, rather than the shape a generic Rust HTTP client would send;
 - it sends Chrome's **`User-Agent`**, with the major version read from the installed Chrome;
 - it forwards Chrome's **`cf_clearance`** cookie, Cloudflare's record that this machine already passed a check.
 
-The three go together: Cloudflare ties `cf_clearance` to the agent string that earned it. That is also why the **manual** and **environment variable** setups above can still be challenged — they carry the identity cookies but no `cf_clearance`.
+The three go together: Cloudflare ties `cf_clearance` to the agent string that earned it, and weighs both against the fingerprint. That is also why the **manual** and **environment variable** setups above can still be challenged — they carry the identity cookies but no `cf_clearance`.
 
 If you do see the challenge error, open <https://leetcode.com> in Chrome, let the page settle, and retry. Waiting does not help on its own: `__cf_bm` expires after about half an hour of no traffic, so an idle session is *more* likely to be challenged than a busy one.
 
