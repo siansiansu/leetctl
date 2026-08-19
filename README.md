@@ -25,11 +25,24 @@ No network call and no LeetCode Premium subscription is needed to filter by a se
 
 ## Install
 
+Prebuilt binaries for macOS and Linux, on Intel and ARM:
+
 ```sh
-# Build deps: system SQLite, plus cmake and a C++ toolchain — the HTTP client
-#   builds BoringSSL from source to reproduce a browser's TLS fingerprint.
-#   Debian/Ubuntu: libsqlite3-dev pkg-config cmake build-essential
-#   macOS: brew install cmake (SQLite and the toolchain ship with Xcode)
+brew install siansiansu/tap/leetctl
+```
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/siansiansu/leetctl/releases/latest/download/leetctl-installer.sh | sh
+```
+
+Or build it yourself:
+
+```sh
+# Build deps: cmake and a C++ toolchain — the HTTP client builds BoringSSL from
+#   source to reproduce a browser's TLS fingerprint. SQLite is statically linked.
+#   Debian/Ubuntu: cmake build-essential
+#   macOS: brew install cmake (the toolchain ships with Xcode)
 cargo install leetctl
 ```
 

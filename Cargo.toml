@@ -44,6 +44,12 @@ pbkdf2 = "0.13.0"
 sha1 = "0.11.0"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 
+# Statically link SQLite so a prebuilt binary does not depend on the host's
+# libsqlite3, whose version varies across Linux distributions.
+[dependencies.libsqlite3-sys]
+version = "0.38.2"
+features = ["bundled"]
+
 [dependencies.diesel]
 version = "2.3.12"
 features = ["sqlite"]
